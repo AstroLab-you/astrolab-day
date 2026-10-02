@@ -670,6 +670,17 @@
     }
     if(EMBED){
       window.addEventListener('hashchange',()=>{ centerText=centerFromHash(); setCenterText(centerText); });
+      // Свайп по кругу листает дни на экране дня: касания внутри iframe до
+      // страницы не доходят, поэтому жест распознаётся здесь и уходит
+      // сообщением. pan-y: вертикаль браузер прокручивает сам, а горизонталь
+      // отдаёт нам и не отменяет жест на полпути.
+      document.documentElement.style.touchAction='pan-y';
+      let sx=0, sy=0;
+      document.addEventListener('touchstart',e=>{ sx=e.changedTouches[0].clientX; sy=e.changedTouches[0].clientY; },{passive:true});
+      document.addEventListener('touchend',e=>{
+        const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy;
+        if(Math.abs(dx)>50 && Math.abs(dx)>Math.abs(dy)*1.5) parent.postMessage({type:'swipe',dir:dx<0?1:-1},'*');
+      },{passive:true});
       // Небо выбранного дня присылает day.html: планеты дня на жетонах,
       // дома и оси — натальные, натальные точки — метками. Первый раз
       // круг собирается с анимацией, при смене дня — сразу.

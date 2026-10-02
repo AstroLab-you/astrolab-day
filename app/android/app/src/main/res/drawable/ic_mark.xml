@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Марка «A» сайта (logo.png) векторно: передний план адаптивной иконки,
+     монохромная тематическая иконка Android 13 и заставка при запуске.
+     Исходные контуры — в квадрате 180×180, здесь вписаны в безопасную
+     зону 66 из 108 dp адаптивной иконки. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:scaleX="0.54" android:scaleY="0.54" android:translateX="5.2" android:translateY="5.2">
+        <path android:fillColor="@color/mark" android:pathData="M37.2,138.9l-0.2,-0.1l38.6,-73.1l0.4,0.2c4.6,2.4 5.5,10.4 3.1,15l-27.6,51.3C49,137 41.9,141.4 37.2,138.9z"/>
+        <path android:fillColor="@color/mark" android:pathData="M78.5,137.4V135c0,-1.5 1.2,-2.7 2.7,-2.7h18c1.5,0 2.7,1.2 2.7,2.7v2.4c0,1.5 -1.2,2.7 -2.7,2.7h-18C79.7,140.1 78.5,138.9 78.5,137.4z"/>
+        <path android:fillColor="@color/mark" android:pathData="M91.1,39.4l0.3,-0.2l52.4,99.6l-0.2,0.1c-4.7,2.5 -11.1,-0.7 -13.5,-5.4L88.2,54.1C85.8,49.6 86.5,41.8 91.1,39.4z"/>
+    </group>
+</vector>

@@ -1,6 +1,6 @@
 {
   "appId": "you.astrolab.day",
-  "appName": "Астролаб · день",
+  "appName": "Astrolab",
   "webDir": "www",
   "android": { "backgroundColor": "#12162A" }
 }

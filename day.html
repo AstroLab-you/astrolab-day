@@ -69,6 +69,8 @@
     --star-trail:      rgba(224,196,140,0.9);
   }
   * { margin:0; padding:0; box-sizing:border-box; }
+  /* горизонтальные жесты — странице (свайп по дням), вертикаль — браузеру */
+  html, body { touch-action: pan-y; }
   #skyfall { position:fixed; inset:0; z-index:-1; pointer-events:none; display:none; }
   #skyfall.on { display:block; }
   /* фон — как на лендинге: свечение повторяет .hero-glow (эллипс 900×600,
@@ -748,7 +750,22 @@
     else if (e.key === 'Escape' && openId) toggleSphere(openId);
   });
 
-  // свайп по экрану — переключение дней
+  // ===== СВАЙП: ВЛЕВО — ДЕНЬ ВПЕРЁД, ВПРАВО — НАЗАД =====
+  // touch-action: pan-y (в стилях) — вертикальную прокрутку браузер делает
+  // сам, а горизонталь отдаёт странице: иначе Android, начав прокрутку,
+  // отменяет касание (touchcancel), и свайп не доходит до конца. Над
+  // колесом касания ловит iframe — он присылает {type:'swipe'} сам.
+  function swipe(dir) {
+    if (!DATA || document.body.classList.contains('settings-open')) return;
+    const next = current + dir;
+    if (next < 0 || next > DATA.days.length - 1) return;
+    current = next; render(); slideIn(dir);
+  }
+  function slideIn(dir) {
+    if (REDUCED) return;
+    for (const node of [document.querySelector('.day-head-center'), el.spheres])
+      node.animate([{ transform: `translateX(${dir * 28}px)`, opacity: 0.3 }, { transform: 'none', opacity: 1 }], { duration: 260, easing: 'ease-out' });
+  }
   let touchStartX = 0, touchStartY = 0;
   document.addEventListener('touchstart', (e) => {
     touchStartX = e.changedTouches[0].clientX;
@@ -757,11 +774,11 @@
   document.addEventListener('touchend', (e) => {
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
-    if (DATA && !document.body.classList.contains('settings-open') && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
-      if (dx < 0 && current < DATA.days.length - 1) { current++; render(); }
-      else if (dx > 0 && current > 0) { current--; render(); }
-    }
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) swipe(dx < 0 ? 1 : -1);
   }, { passive: true });
+  window.addEventListener('message', (e) => {
+    if (e.source === el.wheel.contentWindow && e.data && e.data.type === 'swipe') swipe(e.data.dir);
+  });
 
   // ===== ЗАПУСК =====
   function render() {
@@ -862,11 +879,12 @@
     el.fError.textContent = '';
     (profile ? el.settingsClose : el.fDate).focus();
   }
-  function closeSettings() {
+  function closeSettings(toTop) {
     el.settings.hidden = true; document.body.classList.remove('settings-open');
-    if (lastFocus) lastFocus.focus();
+    if (lastFocus) lastFocus.focus({ preventScroll: true });
+    if (toTop) window.scrollTo(0, 0);
   }
-  el.settingsClose.addEventListener('click', closeSettings);
+  el.settingsClose.addEventListener('click', () => closeSettings());
   el.wheelCard.addEventListener('click', () => { if (APP) openSettings(); });
 
   // ===== ПОИСК МЕСТА =====
@@ -919,7 +937,8 @@
     if (!chosen) { el.fError.textContent = 'Выберите место из списка: начните вводить название.'; el.fPlace.focus(); return; }
     profile = { date, time, place: chosen };
     store.set(PROFILE_KEY, profile);
-    updateCard(); closeSettings(); compute();
+    // новый день считается с нуля: смотреть его надо с шапки и колеса
+    updateCard(); closeSettings(true); compute();
   });
 
   // ===== ОБНОВЛЕНИЯ =====

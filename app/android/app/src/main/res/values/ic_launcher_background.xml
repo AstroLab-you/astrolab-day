@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- фон иконки и заставки — тёмно-синий сайта (токен bg), марка — его светлый текст (токен text) -->
+    <color name="ic_launcher_background">#1A2036</color>
+    <color name="mark">#F4F1E9</color>
 </resources>
