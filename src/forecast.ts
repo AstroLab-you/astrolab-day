@@ -11,14 +11,14 @@
  *
  * Шаги:
  *   1. натальная карта — как в cli.ts;
- *   2. на 12:00 местного времени каждого дня — положения 10 планет;
- *      Луна — по часам за весь день (за сутки она проходит ~13°);
+ *   2. каждый час местного дня — положения 10 планет (Луна по эфемериде,
+ *      остальные от полудня по скорости);
  *   3. контакты: аспект транзитной планеты к натальной точке в пределах
  *      орбиса; сила K = w_тр · w_нат · (1 − орбис/макс) · (1 или 0.7);
  *   4. сферы: контакт засчитывается сфере, если натальная точка —
  *      управитель её дома или планета-показатель; Луна в доме добавляет
- *      силу без тона; сила полосы — процентиль среди 365 своих дней;
- *   5. для причин дня — до какого момента контакт держится.
+ *      силу без тона; часы сводятся в 3-часовые отрезки, сила отрезка —
+ *      процентиль среди всех отрезков 365 своих дней.
  *
  * Время каждого шага возвращается в generated.ms, а onStep сообщает
  * о каждом законченном шаге: расчёт потом будет анимирован, и важно
@@ -35,7 +35,7 @@ export type ForecastInput = {
   today?: string;        // ГГГГ-ММ-ДД; по умолчанию — сегодня в nowTz
   title?: string;
   place?: string;
-  onStep?: (step: 'natal' | 'distribution365' | 'days7_with_until', ms: number) => void;
+  onStep?: (step: 'natal' | 'distribution365' | 'days7', ms: number) => void;
 };
 
 /* ===== СПРАВОЧНИКИ (из документа методики) ===== */
@@ -56,7 +56,6 @@ const T_ORB: Record<P, number> = { moon: 3, mars: 2, sun: 2, mercury: 2, venus: 
 const T_W: Record<P, number> = { moon: 1, mars: 1, sun: 0.8, mercury: 0.8, venus: 0.8, saturn: 0.8, jupiter: 0.6, uranus: 0.4, neptune: 0.4, pluto: 0.4 };
 // натальная точка: вес
 const N_W: Record<N, number> = { sun: 1, moon: 1, asc: 1, mc: 1, mercury: 0.8, venus: 0.8, mars: 0.8, jupiter: 0.6, saturn: 0.6, uranus: 0.3, neptune: 0.3, pluto: 0.3 };
-const FAST = new Set<P>(['moon', 'sun', 'mercury', 'venus', 'mars']);
 
 // традиционные управители знаков (решение 1)
 const RULER: P[] = ['mars', 'venus', 'mercury', 'moon', 'sun', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'saturn', 'jupiter'];
@@ -115,14 +114,12 @@ const MOON_HOUSE: string[] = [
 ];
 const SIGN_IN = ['Овне', 'Тельце', 'Близнецах', 'Раке', 'Льве', 'Деве', 'Весах', 'Скорпионе', 'Стрельце', 'Козероге', 'Водолее', 'Рыбах'];
 const SIGN_NOM = ['Овен', 'Телец', 'Близнецы', 'Рак', 'Лев', 'Дева', 'Весы', 'Скорпион', 'Стрелец', 'Козерог', 'Водолей', 'Рыбы'];
-const MONTH_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 /* ===== АСТРОНОМИЯ ===== */
 
 const norm = (x: number) => ((x % 360) + 360) % 360;
 const sep = (a: number, b: number) => { const d = norm(a - b); return d > 180 ? 360 - d : d; };
 const jdOfMs = (ms: number) => ms / 86400000 + 2440587.5;
-const msOfJd = (jd: number) => (jd - 2440587.5) * 86400000;
 
 function planet(jd: number, p: P) {
   const r = eph().calc_ut(jd, IPL[p], c.SEFLG_SWIEPH | c.SEFLG_SPEED);
@@ -136,7 +133,7 @@ export function buildForecast(inp: ForecastInput) {
   const nowTz = inp.nowTz;
   const t0 = performance.now();
   const timing: Record<string, number> = {};
-  const lap = (name: 'natal' | 'distribution365' | 'days7_with_until', from: number) => {
+  const lap = (name: 'natal' | 'distribution365' | 'days7', from: number) => {
     timing[name] = Math.round((performance.now() - from) * 10) / 10;
     inp.onStep?.(name, timing[name]);
   };
@@ -180,9 +177,21 @@ export function buildForecast(inp: ForecastInput) {
   }
   lap('natal', t);
 
-  /* ===== 2–4. КОНТАКТЫ И СФЕРЫ НА МОМЕНТ ===== */
+  /* ===== 2–4. СИЛА ПО 3-ЧАСОВЫМ ОТРЕЗКАМ =====
+   * Сила считается по часам местного дня (на середину часа) и сводится
+   * в восемь отрезков: 0–3, 3–6 … 21–24; сфера на отрезке — среднее её
+   * силы за три часа. Так видно, когда влияние начинается, достигает
+   * пика и уходит, а не «сумма лучших моментов дня», как было раньше.
+   *
+   * Положения: Луна — по эфемериде каждый час (за час она проходит
+   * ~0,5°); остальные планеты — от полудня по скорости: за полсуток они
+   * смещаются меньше чем на градус, и ошибка линейной поправки — угловые
+   * секунды. Дни перевода часов считаются как 24 часа — сдвиг на час
+   * дважды в год для прототипа неважен. */
 
-  type Contact = { transit: P; natal: N; aspect: AspectType; orb: number; applying: boolean; tone: number; k: number; jd?: number };
+  const SLOTS = 8;
+  type Contrib = { transit: P; natal: N; aspect: AspectType; tone: number; orb: number; slots: number[] };
+  type SphereDay = { S: number[]; toned: number[]; own: Map<string, Contrib> };
 
   function toneOf(p: P, a: AspectType): number {
     if (a === 'trine' || a === 'sextile') return 1;
@@ -196,102 +205,48 @@ export function buildForecast(inp: ForecastInput) {
     return pos;
   }
 
-  function contactsAt(pos: Record<P, { lon: number; speed: number }>, skip?: P): Contact[] {
-    const out: Contact[] = [];
-    for (const p of PLANETS) {
-      if (p === skip) continue;
-      const { lon, speed } = pos[p];
-      for (const n of NATAL_POINTS) {
-        const s = sep(lon, natalLon[n]);
-        for (const [a, ang] of ASPECTS) {
-          const orb = Math.abs(s - ang);
-          if (orb > T_ORB[p]) continue;
-          const later = Math.abs(sep(lon + speed * 0.01, natalLon[n]) - ang);
-          const applying = later < orb;
-          const k = T_W[p] * N_W[n] * (1 - orb / T_ORB[p]) * (applying ? 1 : 0.7);
-          out.push({ transit: p, natal: n, aspect: a, orb, applying, tone: toneOf(p, a), k });
+  // какие натальные точки входят хоть в одну сферу — остальные не считаем
+  const USED = NATAL_POINTS.filter(n => SPHERES.some(s => sphereWeight[s.id][n]));
+
+  function dayCalc(ymd: string) {
+    const jdNoon = noonJd(ymd), noon = skyAt(jdNoon);
+    const sp: Record<string, SphereDay> = Object.fromEntries(SPHERES.map(s => [s.id, { S: new Array(SLOTS).fill(0), toned: new Array(SLOTS).fill(0), own: new Map() }]));
+    for (let h = 0; h < 24; h++) {
+      const dt = (h + 0.5 - 12) / 24, slot = Math.floor(h / 3);
+      const moon = planet(jdNoon + dt, 'moon');
+      for (const p of PLANETS) {
+        const lon = p === 'moon' ? moon.lon : noon[p].lon + noon[p].speed * dt;
+        const speed = p === 'moon' ? moon.speed : noon[p].speed;
+        for (const n of USED) {
+          const s = sep(lon, natalLon[n]);
+          for (const [a, ang] of ASPECTS) {
+            const orb = Math.abs(s - ang);
+            if (orb > T_ORB[p]) continue;
+            const applying = Math.abs(sep(lon + speed * 0.01, natalLon[n]) - ang) < orb;
+            const k = T_W[p] * N_W[n] * (1 - orb / T_ORB[p]) * (applying ? 1 : 0.7);
+            const tone = toneOf(p, a);
+            for (const s2 of SPHERES) {
+              const w = sphereWeight[s2.id][n]; if (!w) continue;
+              const kw = k * w / 3, d = sp[s2.id], key = p + a + n;   // /3: среднее за три часа отрезка
+              d.S[slot] += kw; d.toned[slot] += tone * kw;
+              let c = d.own.get(key);
+              if (!c) d.own.set(key, c = { transit: p, natal: n, aspect: a, tone, orb, slots: new Array(SLOTS).fill(0) });
+              c.slots[slot] += kw; c.orb = Math.min(c.orb, orb);
+            }
+          }
         }
-      }
-    }
-    return out.sort((x, y) => y.k - x.k);
-  }
-
-  // Луна за сутки проходит ~13°, и снимок в полдень пропускает её аспекты
-  // утром и вечером — отсюда пустые полосы в тихие дни. Поэтому Луна
-  // считается по часам за весь местный день: аспект засчитывается, если
-  // был хоть в какой-то час, а сила — по самому точному часу. Остальные
-  // планеты за сутки сдвигаются на градус-два — для них хватает полудня.
-  function moonContactsOverDay(jdNoon: number): Contact[] {
-    const best = new Map<string, Contact>();
-    for (let h = -12; h < 12; h++) {
-      const jd = jdNoon + h / 24;
-      const { lon, speed } = planet(jd, 'moon');
-      for (const n of NATAL_POINTS) {
-        const s = sep(lon, natalLon[n]);
-        for (const [a, ang] of ASPECTS) {
-          const orb = Math.abs(s - ang);
-          if (orb > T_ORB.moon) continue;
-          const key = n + a, prev = best.get(key);
-          if (prev && prev.orb <= orb) continue;
-          const applying = Math.abs(sep(lon + speed * 0.01, natalLon[n]) - ang) < orb;
-          const k = T_W.moon * N_W[n] * (1 - orb / T_ORB.moon) * (applying ? 1 : 0.7);
-          best.set(key, { transit: 'moon', natal: n, aspect: a, orb, applying, tone: toneOf('moon', a), k, jd });
-        }
-      }
-    }
-    return [...best.values()];
-  }
-
-  function dayContacts(jdNoon: number, pos: Record<P, { lon: number; speed: number }>): Contact[] {
-    return [...contactsAt(pos, 'moon'), ...moonContactsOverDay(jdNoon)].sort((x, y) => y.k - x.k);
-  }
-
-  function spheresAt(pos: Record<P, { lon: number; speed: number }>, contacts: Contact[]) {
-    const moonHouse = houseOf(pos.moon.lon, cusps);
-    return SPHERES.map(s => {
-      let S = 0, toned = 0;
-      const own: (Contact & { kw: number })[] = [];
-      for (const ct of contacts) {
-        const w = sphereWeight[s.id][ct.natal];
-        if (!w) continue;
-        const kw = ct.k * w;
-        S += kw; toned += ct.tone * kw;
-        own.push({ ...ct, kw });
       }
       // Луна в доме сферы: сила без тона
-      if (moonHouse === s.main) S += 0.5; else if (moonHouse === s.sec) S += 0.25;
-      return { id: s.id, S, tone: S ? toned / S : 0, own: own.sort((a, b) => b.kw - a.kw) };
-    });
-  }
-
-  /* ===== 5. ДО КАКОГО МОМЕНТА ДЕРЖИТСЯ КОНТАКТ ===== */
-
-  function untilMs(ct: Contact, jd0: number): number | null {
-    const ang = ASPECTS.find(a => a[0] === ct.aspect)![1];
-    const inside = (jd: number) => Math.abs(sep(planet(jd, ct.transit).lon, natalLon[ct.natal]) - ang) <= T_ORB[ct.transit];
-    // шаг под скорость планеты; предел поиска — два года
-    const step = ct.transit === 'moon' ? 1 / 24 : FAST.has(ct.transit) ? 0.5 : 4;
-    let a = jd0, b = jd0 + step;
-    for (let i = 0; i < 730 / step && inside(b); i++) { a = b; b += step; }
-    if (inside(b)) return null;
-    for (let i = 0; i < 24; i++) { const m = (a + b) / 2; if (inside(m)) a = m; else b = m; }
-    return msOfJd(a);
-  }
-
-  function untilText(ms: number | null, dayYmd: string, p: P): string {
-    if (ms === null) return 'надолго';
-    const l = localParts(ms);
-    const sameYear = l.y === +dayYmd.slice(0, 4);
-    const date = `${l.d} ${MONTH_GEN[l.m - 1]}${sameYear ? '' : ' ' + l.y}`;
-    // кончается в тот же день — важнее время; Луна — всегда со временем
-    if (l.ymd === dayYmd) return `до ${l.hm}`;
-    return p === 'moon' ? `до ${date}, ${l.hm}` : `до ${date}`;
+      const mh = houseOf(moon.lon, cusps);
+      for (const s2 of SPHERES) sp[s2.id].S[slot] += (mh === s2.main ? 0.5 : mh === s2.sec ? 0.25 : 0) / 3;
+    }
+    return { ymd, jdNoon, noon, sp };
   }
 
   // Только смысл: «Лёгкое настроение в работе и обязательствах.» Кто к кому
   // и каким аспектом — видно по значкам строки и подсветке на колесе, в
   // тексте это лишний для неастролога слой. Полная фраза — в aria-label.
-  function textOf(ct: Contact): string {
+  function textOf(ct: Contrib): string {
     const eff = EFFECT[ct.transit][ct.tone > 0 ? 0 : ct.tone < 0 ? 1 : 2];
     // планета к самой себе: «в настроении» после «настроение» звучит дважды
     const area = ct.transit === ct.natal ? '' : ' ' + AREA[ct.natal];
@@ -299,7 +254,7 @@ export function buildForecast(inp: ForecastInput) {
   }
 
   // «Луна в трине к вашему Сатурну» — для экранного диктора
-  function labelOf(ct: Contact): string {
+  function labelOf(ct: Contrib): string {
     const target = ct.aspect === 'conjunction' ? INS[ct.natal] : DAT[ct.natal];
     return `${NAME[ct.transit]} ${ASP_PHRASE[ct.aspect]} ${target}`;
   }
@@ -318,18 +273,20 @@ export function buildForecast(inp: ForecastInput) {
     return d.toISOString().slice(0, 10);
   };
 
-  // распределение силы по 365 своим дням вокруг сегодня — для процентилей
+  // распределение силы по 365 своим дням вокруг сегодня — для процентилей:
+  // 8 отрезков × 365 дней на сферу; семь показываемых дней берутся отсюда же
   t = performance.now();
   const dist: Record<string, number[]> = Object.fromEntries(SPHERES.map(s => [s.id, [] as number[]]));
+  const shown = new Map<string, ReturnType<typeof dayCalc>>();
   for (let i = -182; i <= 182; i++) {
-    const jd = noonJd(addDays(todayYmd, i));
-    const pos = skyAt(jd);
-    for (const sp of spheresAt(pos, dayContacts(jd, pos))) dist[sp.id].push(sp.S);
+    const dc = dayCalc(addDays(todayYmd, i));
+    for (const s of SPHERES) dist[s.id].push(...dc.sp[s.id].S);
+    if (i >= -6 && i <= 0) shown.set(dc.ymd, dc);
   }
   for (const k in dist) dist[k].sort((a, b) => a - b);
-  // Процентиль «по середине группы»: если у человека 15% дней без влияний
-  // на сферу, такой день получает ~7, а не 0 — пустая полоса читается как
-  // ошибка, а это просто тихий день
+  // Процентиль «по середине группы»: если у человека 15% отрезков без
+  // влияний на сферу, такой отрезок получает ~7, а не 0 — пустая полоса
+  // читается как ошибка, а это просто тихие часы
   const bound = (a: number[], S: number, strict: boolean) => {
     let lo = 0, hi = a.length;
     while (lo < hi) { const m = (lo + hi) >> 1; if (strict ? a[m] < S : a[m] <= S) lo = m + 1; else hi = m; }
@@ -342,41 +299,38 @@ export function buildForecast(inp: ForecastInput) {
   lap('distribution365', t);
 
   t = performance.now();
-  let untilCalls = 0;
+  const r2 = (x: number) => Math.round(x * 100) / 100, r3 = (x: number) => Math.round(x * 1000) / 1000;
   const days = [];
   for (let i = -6; i <= 0; i++) {
-    const ymd = addDays(todayYmd, i);
-    const jd = noonJd(ymd);
-    const pos = skyAt(jd);
-    const contacts = dayContacts(jd, pos);
+    const { ymd, noon: pos, sp } = shown.get(addDays(todayYmd, i))!;
     const moonHouse = houseOf(pos.moon.lon, cusps);
     const moonSign = Math.floor(norm(pos.moon.lon) / 30);
-    const spheres = spheresAt(pos, contacts).map(sp => {
-      const def = SPHERES.find(s => s.id === sp.id)!;
-      const drivers = sp.own.slice(0, 3).map(ct => {
-        untilCalls++;
-        return {
-          transit: ct.transit, aspect: ct.aspect, natal: ct.natal, tone: ct.tone,
-          speed: FAST.has(ct.transit) ? 'fast' : 'slow',
-          until: untilText(untilMs(ct, ct.jd ?? jd), ymd, ct.transit),
-          text: textOf(ct),
-          label: labelOf(ct),
-        };
-      });
-      return { id: sp.id, name: def.name, about: def.about, tone: Math.round(sp.tone * 100) / 100, strength: percentile(sp.id, sp.S), drivers };
+    const lines = new Map<string, Contrib>();
+    const spheres = SPHERES.map(def => {
+      const d = sp[def.id];
+      // причины — влияния, заметные хоть в одном отрезке; сильные выше
+      const own = [...d.own.values()].filter(c => Math.max(...c.slots) > 0.005)
+        .sort((a, b) => Math.max(...b.slots) - Math.max(...a.slots)).slice(0, 5);
+      own.forEach(c => lines.set(c.transit + c.aspect + c.natal, c));
+      return {
+        id: def.id, name: def.name, about: def.about,
+        slots: d.S.map((S, j) => ({ strength: percentile(def.id, S), tone: S ? r2(d.toned[j] / S) : 0 })),
+        drivers: own.map(c => ({ transit: c.transit, aspect: c.aspect, natal: c.natal, tone: c.tone,
+          text: textOf(c), label: labelOf(c), slots: c.slots.map(r3) })),
+      };
     });
     days.push({
       date: ymd,
       moon: { sign: SIGN_NOM[moonSign], signIn: SIGN_IN[moonSign], natalHouse: moonHouse, phase: moonPhase(pos.sun.lon, pos.moon.lon),
               text: `Луна в вашем ${moonHouse}-м доме: ${MOON_HOUSE[moonHouse]}` },
-      // небо дня для колеса: планеты в натальных домах
+      // небо дня для колеса (на полдень): планеты в натальных домах
       sky: PLANETS.map(p => ({ id: p, name: NAME[p], ...position(pos[p].lon), speed: pos[p].speed, retrograde: pos[p].speed < 0, house: houseOf(pos[p].lon, cusps) })),
-      contacts: contacts.map(ct => ({ transit: ct.transit, natal: ct.natal, aspect: ct.aspect, orb: Math.round(ct.orb * 100) / 100, tone: ct.tone })),
+      // линии на колесе — все причины дня, чтобы подсветка строки нашла свою пару
+      contacts: [...lines.values()].map(c => ({ transit: c.transit, natal: c.natal, aspect: c.aspect, orb: r2(c.orb), tone: c.tone })),
       spheres,
     });
   }
-  lap('days7_with_until', t);
-  timing.untilSearches = untilCalls;
+  lap('days7', t);
   timing.total = Math.round((performance.now() - t0) * 10) / 10;
 
   const out = {

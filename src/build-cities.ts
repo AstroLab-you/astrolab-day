@@ -54,7 +54,10 @@ const tzs: string[] = [], tzIdx = new Map<string, number>();
 const where: string[] = [], whereIdx = new Map<string, number>();
 const idx = (list: string[], map: Map<string, number>, v: string) => { let i = map.get(v); if (i === undefined) { i = list.length; list.push(v); map.set(v, i); } return i; };
 
-cities.sort((a, b) => b.pop - a.pop);
+// порядок поиска: крупнее — выше, но Россия и соседи с весом ×10 — приложение
+// русскоязычное, и «Кир» должен найти Киров раньше Киркука
+const rank = (c: City) => c.pop * (NEAR.has(c.cc) ? 10 : 1);
+cities.sort((a, b) => rank(b) - rank(a));
 const rows = cities.map(c => {
   const a = admins.get(c.adm), k = countries.get(c.cc);
   // GeoNames пишет «Кировская Область» — служебные слова со строчной
