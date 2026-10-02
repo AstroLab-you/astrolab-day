@@ -1,0 +1,17 @@
+{
+  "name": "astrolab-day-app",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Приложение «прогноз на день»: экран дня в Capacitor, расчёт в телефоне",
+  "scripts": {
+    "build": "./build.sh",
+    "release": "./release.sh"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}

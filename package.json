@@ -1,0 +1,22 @@
+{
+  "name": "astrolab-natal-calc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "chart": "node src/cli.ts",
+    "validate": "node src/validate.ts",
+    "test": "node --test src/*.test.ts",
+    "fetch-ephe": "./fetch-ephe.sh",
+    "day": "node src/day.ts"
+  },
+  "dependencies": {
+    "sweph": "^2.10.3-8"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Мой день</title>
+<!--
+  ===== ЭКРАН ДНЯ — ПРОТОТИП =====
+
+  Главный экран приложения «на каждый день»: открыть и за пять секунд
+  оценить день, как прогноз погоды. Пользователь смотрит, а не читает:
+  по каждой сфере жизни — полоса, цвет которой говорит о тоне дня
+  (поддерживает или напрягает), а заполнение — о силе (процентиль среди
+  дней этого же человека). Текст появляется только по тапу: строка
+  плавно раскрывается на месте и сдвигает остальные вниз.
+
+  Вместо иконки «погоды» сверху стоит колесо (wheel.html в режиме
+  встраивания) с небом выбранного дня, а в его центре — фраза дня: совет
+  из moon.text без приставки «Луна в N-м доме:». Тап по колесу во время
+  сборки пропускает анимацию; отдельной страницы карты в приложении нет.
+
+  Данные — в блоке #day-data, их кладёт src/day.ts: настоящие транзиты
+  за семь дней (сегодня и шесть предыдущих, вперёд не показываем).
+  Методика ещё на согласовании у астролога, это прототип. Колесо сверху — небо выбранного дня, его
+  получает wheel.html?embed=1 сообщением.
+
+  Внешних ресурсов нет: страница открывается двойным кликом.
+-->
+<style>
+  /* ===== ПАЛИТРА ===== (из кабинета: тёмно-синий и латунь) */
+  :root {
+    --bg:          #1A2036;
+    --bg-2:        #232B47;
+    --bg-black:    #12162A;
+    --card:        rgba(30,37,64,0.72);
+    --card-solid:  #232B47;
+    --accent:      #C9A45C;
+    --accent-2:    #B8863B;
+    --periwinkle:  #E0C48C;
+    --text:        #F4F1E9;
+    --text-dim:    rgba(244,241,233,0.78);
+    --steel:       #D8CBB0;
+    --muted:       rgba(244,241,233,0.5);
+    --border:      rgba(244,241,233,0.14);
+    --accent-glow: rgba(201,164,92,0.7);
+    --ok:          #7FBF8F;
+    --danger:      #D9705F;
+    --font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+    /* тоны сфер: зелёный светлее, красный темнее (дальтонизм) */
+    --tone-pos-weak:   #C2E0CB;
+    --tone-pos:        #8CCB9C;
+    --tone-pos-strong: #5CA972;
+    --tone-neg-weak:   #D98C7A;
+    --tone-neg:        #C4654F;
+    --tone-neg-strong: #9E3B2A;
+    --tone-neutral:    #8C8677;
+    --track:           rgba(244,241,233,0.08);
+    /* стекло полос: блик сверху, тень снизу, светлая кромка */
+    --glass-hi:        rgba(255,255,255,0.42);
+    --glass-mid:       rgba(255,255,255,0.10);
+    --glass-edge:      rgba(255,255,255,0.18);
+    --glass-shade:     rgba(0,0,0,0.28);
+
+    /* фон как на лендинге: золотое свечение сверху, ночью — звёзды */
+    --glow:            rgba(201,164,92,0.35);
+    --star:            rgba(224,236,255,0.85);
+    --star-trail:      rgba(224,196,140,0.9);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  #skyfall { position:fixed; inset:0; z-index:-1; pointer-events:none; display:none; }
+  #skyfall.on { display:block; }
+  /* фон — как на лендинге: свечение повторяет .hero-glow (эллипс 900×600,
+     центр на 100px от верха), книзу темнее, как тень под hero */
+  body { font-family:var(--font); color:var(--text); line-height:1.4;
+    background-color:var(--bg);
+    background-image:
+      radial-gradient(450px 300px at 50% 100px, var(--glow) 0%, transparent 100%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg) 45%, var(--bg-black) 100%);
+    background-attachment:fixed;
+    -webkit-font-smoothing:antialiased; overflow-x:hidden; min-height:100vh; }
+
+  /* ===== ЭКРАН ===== */
+  .screen {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 16px 20px calc(24px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  @media (max-width: 390px) {
+    .screen { padding-left: 16px; padding-right: 16px; }
+  }
+
+  /* ===== ШАПКА ДНЯ ===== */
+  .day-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+  }
+  .nav-arrow {
+    width: 44px; height: 44px;
+    flex: 0 0 44px;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: none;
+    color: var(--accent);
+    font-size: 28px; line-height: 1;
+    cursor: pointer;
+    border-radius: 12px;
+  }
+  .nav-arrow:disabled { color: var(--muted); opacity: 0.4; cursor: default; }
+  /* Шапка не должна менять высоту при смене дня — иначе прыгают колесо и
+     полосы. Поэтому три строки всегда на месте и каждая в одну строку:
+     день недели — в подписи сверху, дата — короткая, Луна — без переноса. */
+  .day-head-center { text-align: center; flex: 1 1 0; min-width: 0; }
+  .day-kicker {
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 2px;
+  }
+  .day-kicker, .day-date { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .day-date { font-size: 26px; font-weight: 600; color: var(--text); line-height: 1.25; }
+
+  /* ===== КОЛЕСО И ФРАЗА ДНЯ ===== */
+  .weather {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    padding: 8px 0 4px;
+  }
+  /* колесо натальной карты вместо иконки погоды; фраза дня — в его центре */
+  /* iframe поднят под шапку на --wheel-lift: при сборке слои падают сверху,
+     и край iframe их обрезал. Шапка лежит выше по z-index, её кнопки
+     нажимаются, а прозрачная часть iframe просто ничего не закрывает. */
+  .day-wheel { width: 100%; aspect-ratio: 1 / 1; position: relative; }
+  .day-wheel iframe { position: absolute; left: 0; top: calc(-1 * var(--wheel-lift, 0px)); width: 100%; height: calc(100% + var(--wheel-lift, 0px));
+    border: 0; display: block; background: transparent; }
+  .day-head { position: relative; z-index: 1; }
+  .moon-chip {
+    margin-top: 8px; white-space: nowrap; max-width: 100%;
+    display: inline-flex; align-items: center; gap: 8px;
+    min-height: 44px; padding: 8px 14px;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 999px; color: var(--text-dim);
+    font-size: 14px;
+  }
+  .moon-glyph { color: var(--accent); font-size: 16px; }
+
+  /* ===== ПОЛОСЫ СФЕР ===== */
+  .spheres { display: flex; flex-direction: column; gap: 14px; }
+  .sphere-row {
+    display: flex; align-items: center; gap: 12px;
+    width: 100%; min-height: 44px;
+    background: none; border: none; padding: 4px 0;
+    color: inherit; text-align: left; cursor: pointer;
+    font-family: inherit;
+  }
+  .sphere-icon { flex: 0 0 28px; color: var(--accent); width: 28px; height: 28px; }
+  .sphere-icon svg { width: 100%; height: 100%; display: block; }
+  .sphere-name {
+    flex: 0 0 108px; font-size: 15px; color: var(--text-dim);
+  }
+  .sphere-bar-wrap {
+    flex: 1 1 auto; position: relative; height: 26px;
+    display: flex; align-items: center;
+  }
+  /* стекло: полупрозрачная дорожка с кромкой, заливка — цвет тона сквозь
+     блик сверху и затенение снизу, с мягким свечением своего цвета */
+  .sphere-track {
+    position: absolute; left: 0; right: 0; height: 18px;
+    background: var(--track); border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--glass-edge), inset 0 2px 4px var(--glass-shade);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .sphere-fill {
+    position: absolute; left: 0; height: 18px;
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg, var(--glass-hi) 0%, var(--glass-mid) 42%, transparent 58%, var(--glass-shade) 100%),
+      color-mix(in srgb, var(--bar-color, var(--tone-neutral)) 72%, transparent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--bar-color, var(--tone-neutral)) 55%, var(--glass-hi)),
+      0 0 14px color-mix(in srgb, var(--bar-color, var(--tone-neutral)) 40%, transparent);
+    width: 0;
+    transition: width 400ms ease, background-color 400ms ease;
+  }
+  /* число силы — отдельной колонкой: поверх бледной заливки белый
+     текст не читался */
+  .sphere-value {
+    flex: 0 0 46px; text-align: right; font-size: 14px; font-weight: 600;
+    color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .sphere-value .arrow { margin-right: 2px; }
+
+  /* тоны: классы задают --bar-color */
+  .tone-pos-weak   { --bar-color: var(--tone-pos-weak); }
+  .tone-pos        { --bar-color: var(--tone-pos); }
+  .tone-pos-strong { --bar-color: var(--tone-pos-strong); }
+  .tone-neg-weak   { --bar-color: var(--tone-neg-weak); }
+  .tone-neg        { --bar-color: var(--tone-neg); }
+  .tone-neg-strong { --bar-color: var(--tone-neg-strong); }
+  .tone-neutral    { --bar-color: var(--tone-neutral); }
+
+  /* ===== КАРТОЧКА КАРТЫ ===== */
+  .wheel-card {
+    display: flex; align-items: center; gap: 12px;
+    min-height: 56px; padding: 12px 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; text-decoration: none; color: var(--text);
+  }
+  .wheel-deco { flex: 0 0 32px; color: var(--accent); width: 32px; height: 32px; }
+  .wheel-deco svg { width: 100%; height: 100%; display: block; }
+  .wheel-text { flex: 1 1 auto; display: flex; flex-direction: row; align-items: baseline; gap: 4px; flex-wrap: wrap; }
+  .wheel-title { font-size: 15px; font-weight: 600; }
+  .wheel-place { font-size: 13px; color: var(--muted); }
+  .wheel-arrow { color: var(--accent); font-size: 20px; }
+
+  /* ===== РАСКРЫТИЕ СТРОКИ =====
+     Высота анимируется через grid-template-rows 0fr → 1fr: строки ниже
+     плавно уезжают вниз, не нужно знать высоту содержимого заранее. */
+  .sphere-detail {
+    display: grid; grid-template-rows: 0fr;
+    transition: grid-template-rows 320ms ease;
+  }
+  .sphere.open .sphere-detail { grid-template-rows: 1fr; }
+  .sphere-detail-inner { overflow: hidden; min-height: 0; }
+  .sphere-detail-body { padding: 6px 0 10px 40px; }
+  .detail-line { font-size: 15px; color: var(--text); margin-bottom: 4px; }
+  .detail-tone { font-weight: 600; }
+  .detail-tone.tone-pos-weak, .detail-tone.tone-pos, .detail-tone.tone-pos-strong { color: var(--tone-pos); }
+  .detail-tone.tone-neg-weak, .detail-tone.tone-neg, .detail-tone.tone-neg-strong { color: var(--tone-neg-weak); }
+  .detail-tone.tone-neutral { color: var(--tone-neutral); }
+  .detail-sep { color: var(--muted); margin: 0 6px; }
+  .detail-about { font-size: 14px; color: var(--text-dim); margin-bottom: 10px; }
+  .drivers { list-style: none; display: flex; flex-direction: column; gap: 0; }
+  .driver { display: flex; gap: 10px; align-items: flex-start; }
+  .driver-dot {
+    flex: 0 0 10px; width: 10px; height: 10px; border-radius: 50%;
+    margin-top: 5px; background: var(--tone-neutral);
+  }
+  .driver-dot.tone-pos { background: var(--tone-pos); }
+  .driver-dot.tone-neg { background: var(--tone-neg); }
+  .driver-dot.tone-neutral { background: var(--tone-neutral); }
+  .driver-glyphs {
+    flex: 0 0 auto; font-family: 'Segoe UI Symbol','Apple Symbols','Noto Sans Symbols','Noto Sans Symbols 2','DejaVu Sans',sans-serif;
+    font-size: 15px; color: var(--accent); letter-spacing: 2px;
+    min-width: 62px; /* «☽ ⚹ MC» шире «☽ ⚹ ♂» — тексты строк начинаются ровно */
+  }
+  .driver { border-radius: 10px; padding: 8px 6px; margin: 0 -6px; transition: background .2s; cursor: default; }
+  .driver:hover, .driver:focus-visible, .driver.is-hl { background: var(--track); outline: none; }
+  .driver-body { display: flex; flex-direction: column; gap: 3px; }
+  .driver-text { font-size: 14px; color: var(--text-dim); }
+  .driver-when { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .asp-ico { width: 13px; height: 13px; vertical-align: -1px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .drivers-empty { font-size: 14px; color: var(--muted); }
+
+  /* ===== АНИМАЦИИ И ДОСТУПНОСТЬ ===== */
+  @media (prefers-reduced-motion: reduce) {
+    .sphere-fill { transition: none; }
+    .sphere-detail { transition: none; }
+  }
+  .sphere-row:focus-visible, .nav-arrow:focus-visible, 
+  .wheel-card:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+
+  /* ===== ПРИЛОЖЕНИЕ: ДАННЫЕ РОЖДЕНИЯ И «О ПРИЛОЖЕНИИ» =====
+     Полноэкранная панель поверх дня. При первом запуске закрыть её
+     нельзя — без данных рождения считать нечего. */
+  :root {
+    --input-bg:    rgba(18,22,42,0.6);
+    --btn-text:    #12162A;
+    --overlay-bg:  #12162A;            /* непрозрачно: день под панелью не проступает */
+  }
+  .wheel-card { width: 100%; font: inherit; text-align: left; cursor: pointer; }
+  .wheel-card:disabled { cursor: default; }
+  .wheel-card:disabled .wheel-arrow { display: none; }
+  .wheel-update { font-size: 13px; color: var(--accent); }
+  .settings {
+    position: fixed; inset: 0; z-index: 20; overflow-y: auto;
+    background: var(--overlay-bg);
+    padding: calc(16px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
+  }
+  .settings[hidden] { display: none; }
+  .settings-inner { max-width: 440px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  .settings-head { display: flex; align-items: center; justify-content: space-between; min-height: 44px; }
+  .settings-head h2 { font-size: 22px; font-weight: 600; }
+  .settings-close { width: 44px; height: 44px; border: 0; background: none; color: var(--text-dim); font-size: 22px; cursor: pointer; border-radius: 12px; }
+  .settings-lead, .app-note, .field-hint { font-size: 14px; color: var(--text-dim); }
+  .field-hint, .app-note { color: var(--muted); }
+  #birth-form { display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--text-dim); }
+  .field input {
+    min-height: 48px; padding: 10px 14px; font: inherit; font-size: 16px; color: var(--text);
+    background: var(--input-bg); border: 1px solid var(--border); border-radius: 12px;
+    color-scheme: dark;
+  }
+  .field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .place-list { list-style: none; display: flex; flex-direction: column; margin-top: -4px; }
+  .place-list:empty { display: none; }
+  .place-list button {
+    width: 100%; min-height: 48px; padding: 8px 14px; text-align: left; font: inherit; color: var(--text);
+    background: none; border: 0; border-bottom: 1px solid var(--border); cursor: pointer;
+    display: flex; flex-direction: column;
+  }
+  .place-list button:hover, .place-list button:focus-visible { background: var(--track); outline: none; }
+  .place-where { font-size: 13px; color: var(--muted); }
+  .place-empty { padding: 10px 14px; font-size: 14px; color: var(--muted); }
+  .form-error { font-size: 14px; color: var(--danger); min-height: 0; }
+  .form-error:empty { display: none; }
+  .btn-primary, .btn-secondary {
+    min-height: 48px; padding: 12px 18px; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary { border: 0; background: var(--accent); color: var(--btn-text); }
+  .btn-primary:disabled { opacity: .6; cursor: default; }
+  .btn-secondary { border: 1px solid var(--accent); background: none; color: var(--accent); align-self: flex-start; }
+  .about { display: flex; flex-direction: column; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border); }
+  .about h3 { font-size: 16px; font-weight: 600; }
+  .about p { font-size: 14px; color: var(--text-dim); }
+  .update-status:empty { display: none; }
+  .update-status a { color: var(--accent); }
+  .app-credits { font-size: 12px !important; color: var(--muted) !important; }
+  .app-credits a { color: inherit; }
+  /* пока идёт расчёт: полосы пустые, вместо чисел — многоточие */
+  .is-computing .sphere-value { color: var(--muted); }
+  .compute-status { text-align: center; font-size: 14px; color: var(--muted); }
+  .compute-status:empty { display: none; }
+
+  /* ===== ФОН =====
+     Ночное небо в глубину: сверху светлее и холоднее, книзу уходит в
+     почти чёрный. Поверх — две туманности (фиолетовая слева сверху,
+     сине-бирюзовая справа) и тёплый латунный ореол за колесом, чтобы
+     круг «светился» на фоне. Первый вариант от hy4 был слишком тихим:
+     туманности отличались от --bg на 2–5% и не читались вовсе. */
+  :root {
+    --sky-top:     #2A3360;               /* верх неба, холоднее и светлее --bg */
+    --nebula-1:    rgba(120,96,200,0.30); /* фиолетовая, слева сверху */
+    --nebula-2:    rgba(60,130,170,0.20); /* сине-бирюзовая, справа */
+    --nebula-3:    rgba(150,80,140,0.12); /* розоватый отсвет внизу слева */
+    --brass-warm:  rgba(201,164,92,0.20); /* ореол за колесом */
+    /* тихое зерно, чтобы градиенты не шли полосами */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+  /* старый градиент убираем каскадом: у body остаётся только цвет */
+  body {
+    background-color: var(--bg-black);
+    background-image: none;
+    background-attachment: scroll;
+  }
+  /* фон — отдельным неподвижным слоем под звёздами (#skyfall z-index:-1) */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background-color: var(--bg-black);
+    background-image:
+      var(--grain),
+      radial-gradient(70vmax 55vmax at 0% 0%,    var(--nebula-1) 0%, transparent 70%),
+      radial-gradient(60vmax 60vmax at 100% 45%, var(--nebula-2) 0%, transparent 70%),
+      radial-gradient(60vmax 45vmax at 10% 100%, var(--nebula-3) 0%, transparent 70%),
+      linear-gradient(180deg, var(--sky-top) 0%, var(--bg) 45%, var(--bg-black) 100%);
+    background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  }
+  /* ореол за колесом — на самом блоке, чтобы прокручивался вместе с кругом */
+  .day-wheel { background: radial-gradient(closest-side, var(--brass-warm) 0%, transparent 100%); }
+</style>
+</head>
+<body>
+
+<!-- ===== ИКОНКИ (ИНЛАЙН SVG-СПРАЙТ) ===== -->
+<svg width="0" height="0" style="display:none" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- скорость влияния: заяц — быстрые планеты (часы-дни), черепаха — медленные (недели-месяцы) -->
+    <symbol id="i-love" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 20s-7-4.5-7-9.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 7 3.5c0 5-7 9.5-7 9.5z"/>
+    </symbol>
+    <symbol id="i-career" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 21V4M6 4h11l-2 4 2 4H6"/>
+    </symbol>
+    <symbol id="i-money" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="8"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 4v2M12 18v2"/>
+    </symbol>
+    <symbol id="i-health" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 12h4l3-7 4 14 3-7h6"/>
+    </symbol>
+    <symbol id="i-inner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3c0 0-6 6.5-6 10.5a6 6 0 0 0 12 0C18 9.5 12 3 12 3z"/>
+    </symbol>
+    <symbol id="i-family" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9z"/>
+      <path d="M9 21v-6h6v6"/>
+    </symbol>
+    <symbol id="i-talk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 5h16v10H12l-4 4v-4H4z"/>
+    </symbol>
+    <symbol id="i-wheel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/>
+      <circle cx="12" cy="12" r="4.5"/>
+      <line x1="12" y1="3" x2="12" y2="5"/>
+      <line x1="12" y1="19" x2="12" y2="21"/>
+      <line x1="3" y1="12" x2="5" y2="12"/>
+      <line x1="19" y1="12" x2="21" y2="12"/>
+      <line x1="5.6" y1="5.6" x2="7" y2="7"/>
+      <line x1="17" y1="17" x2="18.4" y2="18.4"/>
+      <line x1="5.6" y1="18.4" x2="7" y2="17"/>
+      <line x1="17" y1="7" x2="18.4" y2="5.6"/>
+    </symbol>
+  </defs>
+</svg>
+
+<main class="screen">
+  <!-- ===== ШАПКА ДНЯ ===== -->
+  <header class="day-head">
+    <button class="nav-arrow" id="prev-day" aria-label="Предыдущий день">‹</button>
+    <div class="day-head-center">
+      <div class="day-kicker" id="day-kicker">Сегодня</div>
+      <h1 class="day-date" id="day-date">—</h1>
+      <div class="moon-chip" id="moon-chip">
+        <span class="moon-glyph" aria-hidden="true">☽</span>
+        <span id="moon-text">—</span>
+      </div>
+    </div>
+    <button class="nav-arrow" id="next-day" aria-label="Следующий день">›</button>
+  </header>
+
+  <!-- ===== КОЛЕСО И ФРАЗА ДНЯ ===== -->
+  <section class="weather">
+    <div class="day-wheel"><iframe id="day-wheel" title="Небо дня и фраза дня" loading="eager"></iframe></div>
+  </section>
+
+  <!-- ===== ПОЛОСЫ СФЕР ===== -->
+  <section class="spheres" id="spheres" aria-label="Сферы жизни"></section>
+
+
+  <p class="compute-status" id="compute-status" aria-live="polite"></p>
+
+  <!-- ===== КАРТОЧКА «ДАННЫЕ РОЖДЕНИЯ» ===== (в приложении открывает панель) -->
+  <button class="wheel-card" id="wheel-card" type="button">
+    <span class="wheel-deco" id="wheel-deco" aria-hidden="true"></span>
+    <span class="wheel-text">
+      <span class="wheel-title" id="wheel-title">Натальная карта</span>
+      <span class="wheel-place" id="wheel-place">—</span>
+    </span>
+    <span class="wheel-arrow" aria-hidden="true">›</span>
+  </button>
+</main>
+
+<!-- ===== ДАННЫЕ РОЖДЕНИЯ И «О ПРИЛОЖЕНИИ» ===== только в приложении -->
+<section class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+  <div class="settings-inner">
+    <div class="settings-head">
+      <h2 id="settings-title">Данные рождения</h2>
+      <button class="settings-close" id="settings-close" type="button" aria-label="Закрыть">✕</button>
+    </div>
+    <p class="settings-lead">По дате, времени и месту рождения считается ваша карта, а по ней — каждый день.</p>
+    <form id="birth-form" novalidate>
+      <label class="field"><span>Дата рождения</span><input type="date" id="f-date" min="1800-01-01" required></label>
+      <label class="field"><span>Время рождения</span><input type="time" id="f-time" required></label>
+      <p class="field-hint">От времени зависят дома карты, а с ними и сферы. Если помните примерно — укажите примерно.</p>
+      <label class="field"><span>Место рождения</span>
+        <input type="search" id="f-place" autocomplete="off" placeholder="Город или посёлок" required
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="f-place-list"></label>
+      <ul class="place-list" id="f-place-list" role="listbox" aria-label="Найденные места"></ul>
+      <p class="form-error" id="f-error" role="alert"></p>
+      <button class="btn-primary" id="f-submit" type="submit">Рассчитать</button>
+    </form>
+    <p class="app-note">Данные хранятся только в этом телефоне и никуда не отправляются.</p>
+    <div class="about">
+      <h3>О приложении</h3>
+      <p>Версия <span id="app-version"></span></p>
+      <button class="btn-secondary" id="check-update" type="button">Проверить обновление</button>
+      <p class="update-status" id="update-status" aria-live="polite"></p>
+      <p class="app-credits">Расчёт — Swiss Ephemeris (AGPL). Города — GeoNames (CC BY 4.0).
+        Исходный код открыт: <a href="https://github.com/AstroLab-you/astrolab-day">github.com/AstroLab-you/astrolab-day</a></p>
+    </div>
+  </div>
+</section>
+
+<!-- Звёздное небо — тот же код, что на лендинге (index.html, #skyfall):
+     включается с 21:00 до 04:00 по местному времени -->
+<canvas id="skyfall" aria-hidden="true"></canvas>
+
+<!-- DAY-DATA:BEGIN -->
+<script id="day-data" type="application/json">{"person":{"title":"Натальная карта","place":"Москва","wheelUrl":"wheel.html"},"draft":true,"generated":{"today":"2026-10-02","tz":"Europe/Moscow","ms":{"natal":19,"distribution365":311.2,"days7_with_until":86.6,"untilSearches":132,"total":417.5}},"natal":{"angles":{"asc":{"longitude":164.72439112652978,"sign":"Дева","signIndex":5,"degreeInSign":14.724391126529781,"formatted":"14°43′27″ Девы"},"mc":{"longitude":68.74705488505208,"sign":"Близнецы","signIndex":2,"degreeInSign":8.74705488505208,"formatted":"8°44′49″ Близнецов"},"dsc":{"longitude":344.7243911265298,"sign":"Рыбы","signIndex":11,"degreeInSign":14.724391126529781,"formatted":"14°43′27″ Рыб"},"ic":{"longitude":248.74705488505208,"sign":"Стрелец","signIndex":8,"degreeInSign":8.74705488505208,"formatted":"8°44′49″ Стрельца"},"vertex":{"longitude":325.78002541047715,"sign":"Водолей","signIndex":10,"degreeInSign":25.78002541047715,"formatted":"25°46′48″ Водолея"}},"houses":[{"house":1,"longitude":164.72439112652978,"sign":"Дева","signIndex":5,"degreeInSign":14.724391126529781,"formatted":"14°43′27″ Девы"},{"house":2,"longitude":185.37449736715166,"sign":"Весы","signIndex":6,"degreeInSign":5.374497367151662,"formatted":"5°22′28″ Весов"},{"house":3,"longitude":212.91028108488626,"sign":"Скорпион","signIndex":7,"degreeInSign":2.9102810848862646,"formatted":"2°54′37″ Скорпиона"},{"house":4,"longitude":248.74705488505208,"sign":"Стрелец","signIndex":8,"degreeInSign":8.74705488505208,"formatted":"8°44′49″ Стрельца"},{"house":5,"longitude":287.8502158557883,"sign":"Козерог","signIndex":9,"degreeInSign":17.850215855788292,"formatted":"17°51′00″ Козерога"},{"house":6,"longitude":319.8961595787972,"sign":"Водолей","signIndex":10,"degreeInSign":19.89615957879721,"formatted":"19°53′46″ Водолея"},{"house":7,"longitude":344.7243911265298,"sign":"Рыбы","signIndex":11,"degreeInSign":14.724391126529781,"formatted":"14°43′27″ Рыб"},{"house":8,"longitude":5.374497367151662,"sign":"Овен","signIndex":0,"degreeInSign":5.374497367151662,"formatted":"5°22′28″ Овна"},{"house":9,"longitude":32.91028108488621,"sign":"Телец","signIndex":1,"degreeInSign":2.9102810848862077,"formatted":"2°54′37″ Тельца"},{"house":10,"longitude":68.74705488505208,"sign":"Близнецы","signIndex":2,"degreeInSign":8.74705488505208,"formatted":"8°44′49″ Близнецов"},{"house":11,"longitude":107.85021585578835,"sign":"Рак","signIndex":3,"degreeInSign":17.85021585578835,"formatted":"17°51′00″ Рака"},{"house":12,"longitude":139.8961595787972,"sign":"Лев","signIndex":4,"degreeInSign":19.89615957879721,"formatted":"19°53′46″ Льва"}],"points":[{"id":"asc","lon":164.72439112652978},{"id":"mc","lon":68.74705488505208},{"id":"sun","lon":53.37142762650109},{"id":"moon","lon":284.1524597456853},{"id":"mercury","lon":38.182348391912285},{"id":"venus","lon":11.607310603789244},{"id":"mars","lon":347.54450067819425},{"id":"jupiter","lon":99.34143606702901},{"id":"saturn","lon":295.2664703382327},{"id":"uranus","lon":279.2096193600735},{"id":"neptune","lon":284.3682705772874},{"id":"pluto","lon":226.19689486129369}]},"days":[{"date":"2026-09-26","moon":{"sign":"Рыбы","signIn":"Рыбах","natalHouse":7,"phase":"полнолуние","text":"Луна в вашем 7-м доме: всё решается через других: партнёр, переговоры, совместные дела."},"sky":[{"id":"sun","name":"Солнце","longitude":183.30057052675716,"sign":"Весы","signIndex":6,"degreeInSign":3.3005705267571557,"formatted":"3°18′02″ Весов","speed":0.9798712139245932,"retrograde":false,"house":1},{"id":"moon","name":"Луна","longitude":359.22322454404286,"sign":"Рыбы","signIndex":11,"degreeInSign":29.223224544042864,"formatted":"29°13′23″ Рыб","speed":13.446870948638125,"retrograde":false,"house":7},{"id":"mercury","name":"Меркурий","longitude":204.34237864713396,"sign":"Весы","signIndex":6,"degreeInSign":24.342378647133955,"formatted":"24°20′32″ Весов","speed":1.41358962485164,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":217.60013383660873,"sign":"Скорпион","signIndex":7,"degreeInSign":7.600133836608734,"formatted":"7°36′00″ Скорпиона","speed":0.25077572781857177,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":118.97200079233056,"sign":"Рак","signIndex":3,"degreeInSign":28.97200079233056,"formatted":"28°58′19″ Рака","speed":0.591662140061301,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":138.7486549083767,"sign":"Лев","signIndex":4,"degreeInSign":18.748654908376693,"formatted":"18°44′55″ Льва","speed":0.18521460991925248,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.93848118958465,"sign":"Овен","signIndex":0,"degreeInSign":11.93848118958465,"formatted":"11°56′18″ Овна","speed":-0.07721175777958725,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.59456562550974,"sign":"Близнецы","signIndex":2,"degreeInSign":5.594565625509745,"formatted":"5°35′40″ Близнецов","speed":-0.013038387162588597,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.9901660988505228,"sign":"Овен","signIndex":0,"degreeInSign":2.9901660988505228,"formatted":"2°59′24″ Овна","speed":-0.027769774916125194,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.1594798160763,"sign":"Водолей","signIndex":10,"degreeInSign":3.1594798160763276,"formatted":"3°09′34″ Водолея","speed":-0.009032737502079861,"retrograde":true,"house":5}],"contacts":[{"transit":"moon","natal":"sun","aspect":"sextile","orb":0.28,"tone":1},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.33,"tone":-1},{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.58,"tone":-1},{"transit":"moon","natal":"saturn","aspect":"sextile","orb":0.05,"tone":1},{"transit":"mercury","natal":"saturn","aspect":"square","orb":0.92,"tone":-1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":1.74,"tone":1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":1.61,"tone":1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":-0.1,"strength":88,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"sextile","natal":"saturn","tone":1,"speed":"fast","until":"до 10:17","text":"Лёгкое настроение в работе и обязательствах.","label":"Луна в секстиле к вашему Сатурну"},{"transit":"mercury","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 28 сентября","text":"Путаница в словах и планах в работе и обязательствах.","label":"Меркурий в квадрате к вашему Сатурну"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":-0.05,"strength":39,"drivers":[{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"moon","aspect":"sextile","natal":"sun","tone":1,"speed":"fast","until":"до 06:53","text":"Лёгкое настроение в самоощущении.","label":"Луна в секстиле к вашему Солнцу"},{"transit":"moon","aspect":"sextile","natal":"saturn","tone":1,"speed":"fast","until":"до 10:17","text":"Лёгкое настроение в работе и обязательствах.","label":"Луна в секстиле к вашему Сатурну"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":-0.88,"strength":33,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":0.2,"strength":64,"drivers":[{"transit":"moon","aspect":"sextile","natal":"saturn","tone":1,"speed":"fast","until":"до 10:17","text":"Лёгкое настроение в работе и обязательствах.","label":"Луна в секстиле к вашему Сатурну"},{"transit":"moon","aspect":"sextile","natal":"sun","tone":1,"speed":"fast","until":"до 06:53","text":"Лёгкое настроение в самоощущении.","label":"Луна в секстиле к вашему Солнцу"},{"transit":"mercury","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 28 сентября","text":"Путаница в словах и планах в работе и обязательствах.","label":"Меркурий в квадрате к вашему Сатурну"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":1,"strength":32,"drivers":[{"transit":"moon","aspect":"sextile","natal":"sun","tone":1,"speed":"fast","until":"до 06:53","text":"Лёгкое настроение в самоощущении.","label":"Луна в секстиле к вашему Солнцу"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":-0.57,"strength":8,"drivers":[{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":-1,"strength":27,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]}]},{"date":"2026-09-27","moon":{"sign":"Овен","signIn":"Овне","natalHouse":8,"phase":"полнолуние","text":"Луна в вашем 8-м доме: день для того, чтобы разобраться с общими деньгами и тем, что давно откладывали."},"sky":[{"id":"sun","name":"Солнце","longitude":184.2807188844248,"sign":"Весы","signIndex":6,"degreeInSign":4.2807188844248,"formatted":"4°16′50″ Весов","speed":0.9804303344451403,"retrograde":false,"house":1},{"id":"moon","name":"Луна","longitude":12.821650976758576,"sign":"Овен","signIndex":0,"degreeInSign":12.821650976758576,"formatted":"12°49′17″ Овна","speed":13.742914633502165,"retrograde":false,"house":8},{"id":"mercury","name":"Меркурий","longitude":205.74686774471218,"sign":"Весы","signIndex":6,"degreeInSign":25.746867744712176,"formatted":"25°44′48″ Весов","speed":1.3953263181790097,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":217.83415398223883,"sign":"Скорпион","signIndex":7,"degreeInSign":7.834153982238831,"formatted":"7°50′02″ Скорпиона","speed":0.2171064667865444,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":119.56272875941562,"sign":"Рак","signIndex":3,"degreeInSign":29.56272875941562,"formatted":"29°33′45″ Рака","speed":0.5897925613289635,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":138.93322790721663,"sign":"Лев","signIndex":4,"degreeInSign":18.933227907216633,"formatted":"18°55′59″ Льва","speed":0.18392870794500224,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.861105195829623,"sign":"Овен","signIndex":0,"degreeInSign":11.861105195829623,"formatted":"11°51′39″ Овна","speed":-0.07753294460332362,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.58112738062897,"sign":"Близнецы","signIndex":2,"degreeInSign":5.5811273806289705,"formatted":"5°34′52″ Близнецов","speed":-0.013835919963796914,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.9624008272592732,"sign":"Овен","signIndex":0,"degreeInSign":2.9624008272592732,"formatted":"2°57′44″ Овна","speed":-0.027757824370160052,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.15066074696983,"sign":"Водолей","signIndex":10,"degreeInSign":3.150660746969834,"formatted":"3°09′02″ Водолея","speed":-0.008603891637152266,"retrograde":true,"house":5}],"contacts":[{"transit":"moon","natal":"moon","aspect":"square","orb":0.18,"tone":-1},{"transit":"moon","natal":"mc","aspect":"sextile","orb":0.08,"tone":1},{"transit":"moon","natal":"venus","aspect":"conjunction","orb":0.07,"tone":0},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.25,"tone":-1},{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.35,"tone":-1},{"transit":"moon","natal":"jupiter","aspect":"square","orb":0.05,"tone":-1},{"transit":"mercury","natal":"saturn","aspect":"square","orb":0.48,"tone":-1},{"transit":"moon","natal":"neptune","aspect":"square","orb":0.17,"tone":-1},{"transit":"moon","natal":"uranus","aspect":"square","orb":0.18,"tone":-1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":1.51,"tone":1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":1.38,"tone":1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":-0.57,"strength":90,"drivers":[{"transit":"moon","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 11:09","text":"Раздражительность в планах на рост.","label":"Луна в квадрате к вашему Юпитеру"},{"transit":"moon","aspect":"conjunction","natal":"venus","tone":0,"speed":"fast","until":"до 15:06","text":"Обострённые чувства в отношениях и деньгах.","label":"Луна в соединении с вашей Венерой"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":0.02,"strength":53,"drivers":[{"transit":"moon","aspect":"sextile","natal":"mc","tone":1,"speed":"fast","until":"до 10:07","text":"Лёгкое настроение в карьере и репутации.","label":"Луна в секстиле к вашему MC"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"mercury","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 28 сентября","text":"Путаница в словах и планах в работе и обязательствах.","label":"Меркурий в квадрате к вашему Сатурну"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":-0.43,"strength":95,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"venus","tone":0,"speed":"fast","until":"до 15:06","text":"Обострённые чувства в отношениях и деньгах.","label":"Луна в соединении с вашей Венерой"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 11:09","text":"Раздражительность в планах на рост.","label":"Луна в квадрате к вашему Юпитеру"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":-1,"strength":16,"drivers":[{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"mercury","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 28 сентября","text":"Путаница в словах и планах в работе и обязательствах.","label":"Меркурий в квадрате к вашему Сатурну"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":-0.84,"strength":37,"drivers":[{"transit":"moon","aspect":"square","natal":"moon","tone":-1,"speed":"fast","until":"до 19:32","text":"Раздражительность.","label":"Луна в квадрате к вашей Луне"},{"transit":"moon","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 11:09","text":"Раздражительность в планах на рост.","label":"Луна в квадрате к вашему Юпитеру"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":-0.43,"strength":75,"drivers":[{"transit":"moon","aspect":"square","natal":"moon","tone":-1,"speed":"fast","until":"до 19:32","text":"Раздражительность.","label":"Луна в квадрате к вашей Луне"},{"transit":"moon","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 11:09","text":"Раздражительность в планах на рост.","label":"Луна в квадрате к вашему Юпитеру"},{"transit":"moon","aspect":"sextile","natal":"mc","tone":1,"speed":"fast","until":"до 10:07","text":"Лёгкое настроение в карьере и репутации.","label":"Луна в секстиле к вашему MC"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":-0.66,"strength":55,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"venus","tone":0,"speed":"fast","until":"до 15:06","text":"Обострённые чувства в отношениях и деньгах.","label":"Луна в соединении с вашей Венерой"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]}]},{"date":"2026-09-28","moon":{"sign":"Овен","signIn":"Овне","natalHouse":8,"phase":"полнолуние","text":"Луна в вашем 8-м доме: день для того, чтобы разобраться с общими деньгами и тем, что давно откладывали."},"sky":[{"id":"sun","name":"Солнце","longitude":185.26144060205627,"sign":"Весы","signIndex":6,"degreeInSign":5.261440602056268,"formatted":"5°15′41″ Весов","speed":0.981018051178609,"retrograde":false,"house":1},{"id":"moon","name":"Луна","longitude":26.69151717154267,"sign":"Овен","signIndex":0,"degreeInSign":26.69151717154267,"formatted":"26°41′29″ Овна","speed":13.986271960651115,"retrograde":false,"house":8},{"id":"mercury","name":"Меркурий","longitude":207.13288221038886,"sign":"Весы","signIndex":6,"degreeInSign":27.132882210388857,"formatted":"27°07′58″ Весов","speed":1.3766246931309094,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":218.03403267708802,"sign":"Скорпион","signIndex":7,"degreeInSign":8.034032677088021,"formatted":"8°02′02″ Скорпиона","speed":0.1825006920597245,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":120.15158212532441,"sign":"Лев","signIndex":4,"degreeInSign":0.15158212532440984,"formatted":"0°09′05″ Льва","speed":0.5879121094431327,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":139.11650716902716,"sign":"Лев","signIndex":4,"degreeInSign":19.11650716902716,"formatted":"19°06′59″ Льва","speed":0.1826266982487441,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.78343173817558,"sign":"Овен","signIndex":0,"degreeInSign":11.78343173817558,"formatted":"11°47′00″ Овна","speed":-0.07780747350252255,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.56689782232957,"sign":"Близнецы","signIndex":2,"degreeInSign":5.566897822329565,"formatted":"5°34′00″ Близнецов","speed":-0.014621214702890292,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.9346566259046654,"sign":"Овен","signIndex":0,"degreeInSign":2.9346566259046654,"formatted":"2°56′04″ Овна","speed":-0.027728156292244528,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.14227646733434,"sign":"Водолей","signIndex":10,"degreeInSign":3.142276467334341,"formatted":"3°08′32″ Водолея","speed":-0.008163876860168447,"retrograde":true,"house":5}],"contacts":[{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.15,"tone":-1},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.18,"tone":-1},{"transit":"moon","natal":"saturn","aspect":"square","orb":0.26,"tone":-1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":1.31,"tone":1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":1.18,"tone":1},{"transit":"mercury","natal":"saturn","aspect":"square","orb":1.87,"tone":-1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":-0.49,"strength":46,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 14:42","text":"Раздражительность в работе и обязательствах.","label":"Луна в квадрате к вашему Сатурну"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":-1,"strength":22,"drivers":[{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"moon","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 14:42","text":"Раздражительность в работе и обязательствах.","label":"Луна в квадрате к вашему Сатурну"},{"transit":"mercury","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 14:19","text":"Путаница в словах и планах в работе и обязательствах.","label":"Меркурий в квадрате к вашему Сатурну"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":-0.54,"strength":66,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":-1,"strength":29,"drivers":[{"transit":"moon","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 14:42","text":"Раздражительность в работе и обязательствах.","label":"Луна в квадрате к вашему Сатурну"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"mercury","aspect":"square","natal":"saturn","tone":-1,"speed":"fast","until":"до 14:19","text":"Путаница в словах и планах в работе и обязательствах.","label":"Меркурий в квадрате к вашему Сатурну"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":1,"strength":3,"drivers":[{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":-0.28,"strength":18,"drivers":[{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":-1,"strength":34,"drivers":[{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"}]}]},{"date":"2026-09-29","moon":{"sign":"Телец","signIn":"Тельце","natalHouse":9,"phase":"убывающая","text":"Луна в вашем 9-м доме: тянет к новому — дороге, книгам, планам."},"sky":[{"id":"sun","name":"Солнце","longitude":186.24276325903907,"sign":"Весы","signIndex":6,"degreeInSign":6.242763259039066,"formatted":"6°14′33″ Весов","speed":0.9816317182064352,"retrograde":false,"house":2},{"id":"moon","name":"Луна","longitude":40.771001594804204,"sign":"Телец","signIndex":1,"degreeInSign":10.771001594804204,"formatted":"10°46′15″ Тельца","speed":14.160165658116288,"retrograde":false,"house":9},{"id":"mercury","name":"Меркурий","longitude":208.49993424952322,"sign":"Весы","signIndex":6,"degreeInSign":28.49993424952322,"formatted":"28°29′59″ Весов","speed":1.357383535957901,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":218.19885438901588,"sign":"Скорпион","signIndex":7,"degreeInSign":8.198854389015878,"formatted":"8°11′55″ Скорпиона","speed":0.14700106967873539,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":120.73854741940664,"sign":"Лев","signIndex":4,"degreeInSign":0.7385474194066433,"formatted":"0°44′18″ Льва","speed":0.5860151368929326,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":139.29847514150458,"sign":"Лев","signIndex":4,"degreeInSign":19.298475141504582,"formatted":"19°17′54″ Льва","speed":0.18130534948293295,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.70550653423794,"sign":"Овен","signIndex":0,"degreeInSign":11.70550653423794,"formatted":"11°42′19″ Овна","speed":-0.07803736089172787,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.55188825904895,"sign":"Близнецы","signIndex":2,"degreeInSign":5.551888259048951,"formatted":"5°33′06″ Близнецов","speed":-0.015396509527473779,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.906950224085108,"sign":"Овен","signIndex":0,"degreeInSign":2.906950224085108,"formatted":"2°54′25″ Овна","speed":-0.027683000019543446,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.13433711997686,"sign":"Водолей","signIndex":10,"degreeInSign":3.1343371199768626,"formatted":"3°08′03″ Водолея","speed":-0.0077149622949569474,"retrograde":true,"house":5}],"contacts":[{"transit":"moon","natal":"mars","aspect":"sextile","orb":0.27,"tone":1},{"transit":"moon","natal":"moon","aspect":"trine","orb":0.16,"tone":1},{"transit":"moon","natal":"asc","aspect":"trine","orb":0.18,"tone":1},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.1,"tone":-1},{"transit":"moon","natal":"mercury","aspect":"conjunction","orb":0.23,"tone":0},{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.02,"tone":-1},{"transit":"moon","natal":"jupiter","aspect":"sextile","orb":0.25,"tone":1},{"transit":"moon","natal":"pluto","aspect":"opposition","orb":0.11,"tone":-1},{"transit":"moon","natal":"uranus","aspect":"trine","orb":0.21,"tone":1},{"transit":"moon","natal":"neptune","aspect":"trine","orb":0.05,"tone":1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":1.14,"tone":1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":1.01,"tone":1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":0.33,"strength":72,"drivers":[{"transit":"moon","aspect":"sextile","natal":"jupiter","tone":1,"speed":"fast","until":"до 14:39","text":"Лёгкое настроение в планах на рост.","label":"Луна в секстиле к вашему Юпитеру"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":-0.46,"strength":31,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"mercury","tone":0,"speed":"fast","until":"до 12:41","text":"Обострённые чувства в общении и делах.","label":"Луна в соединении с вашим Меркурием"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":0.05,"strength":85,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"sextile","natal":"mars","tone":1,"speed":"fast","until":"до 30 сентября, 04:31","text":"Лёгкое настроение в делах, где нужен напор.","label":"Луна в секстиле к вашему Марсу"},{"transit":"moon","aspect":"sextile","natal":"jupiter","tone":1,"speed":"fast","until":"до 14:39","text":"Лёгкое настроение в планах на рост.","label":"Луна в секстиле к вашему Юпитеру"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":0.4,"strength":61,"drivers":[{"transit":"moon","aspect":"sextile","natal":"mars","tone":1,"speed":"fast","until":"до 30 сентября, 04:31","text":"Лёгкое настроение в делах, где нужен напор.","label":"Луна в секстиле к вашему Марсу"},{"transit":"moon","aspect":"trine","natal":"asc","tone":1,"speed":"fast","until":"до 23:45","text":"Лёгкое настроение в том, как вас воспринимают.","label":"Луна в трине к вашему Асценденту"},{"transit":"moon","aspect":"conjunction","natal":"mercury","tone":0,"speed":"fast","until":"до 12:41","text":"Обострённые чувства в общении и делах.","label":"Луна в соединении с вашим Меркурием"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":1,"strength":28,"drivers":[{"transit":"moon","aspect":"trine","natal":"moon","tone":1,"speed":"fast","until":"до 22:47","text":"Лёгкое настроение.","label":"Луна в трине к вашей Луне"},{"transit":"moon","aspect":"sextile","natal":"jupiter","tone":1,"speed":"fast","until":"до 14:39","text":"Лёгкое настроение в планах на рост.","label":"Луна в секстиле к вашему Юпитеру"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":0.5,"strength":66,"drivers":[{"transit":"moon","aspect":"sextile","natal":"jupiter","tone":1,"speed":"fast","until":"до 14:39","text":"Лёгкое настроение в планах на рост.","label":"Луна в секстиле к вашему Юпитеру"},{"transit":"moon","aspect":"trine","natal":"moon","tone":1,"speed":"fast","until":"до 22:47","text":"Лёгкое настроение.","label":"Луна в трине к вашей Луне"},{"transit":"moon","aspect":"conjunction","natal":"mercury","tone":0,"speed":"fast","until":"до 12:41","text":"Обострённые чувства в общении и делах.","label":"Луна в соединении с вашим Меркурием"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":0.12,"strength":97,"drivers":[{"transit":"moon","aspect":"sextile","natal":"mars","tone":1,"speed":"fast","until":"до 30 сентября, 04:31","text":"Лёгкое настроение в делах, где нужен напор.","label":"Луна в секстиле к вашему Марсу"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"conjunction","natal":"mercury","tone":0,"speed":"fast","until":"до 12:41","text":"Обострённые чувства в общении и делах.","label":"Луна в соединении с вашим Меркурием"}]}]},{"date":"2026-09-30","moon":{"sign":"Телец","signIn":"Тельце","natalHouse":9,"phase":"убывающая","text":"Луна в вашем 9-м доме: тянет к новому — дороге, книгам, планам."},"sky":[{"id":"sun","name":"Солнце","longitude":187.2247100800422,"sign":"Весы","signIndex":6,"degreeInSign":7.2247100800422,"formatted":"7°13′28″ Весов","speed":0.9822654006468667,"retrograde":false,"house":2},{"id":"moon","name":"Луна","longitude":54.98640556647206,"sign":"Телец","signIndex":1,"degreeInSign":24.986405566472058,"formatted":"24°59′11″ Тельца","speed":14.257957611243194,"retrograde":false,"house":9},{"id":"mercury","name":"Меркурий","longitude":209.8474281583201,"sign":"Весы","signIndex":6,"degreeInSign":29.8474281583201,"formatted":"29°50′50″ Весов","speed":1.337488046255904,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":218.32774975974996,"sign":"Скорпион","signIndex":7,"degreeInSign":8.327749759749963,"formatted":"8°19′39″ Скорпиона","speed":0.11065715592676867,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":121.32360417841073,"sign":"Лев","signIndex":4,"degreeInSign":1.3236041784107329,"formatted":"1°19′24″ Льва","speed":0.5840935579878024,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":139.4791099378906,"sign":"Лев","signIndex":4,"degreeInSign":19.4791099378906,"formatted":"19°28′44″ Льва","speed":0.17995931993158398,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.627372312553803,"sign":"Овен","signIndex":0,"degreeInSign":11.627372312553803,"formatted":"11°37′38″ Овна","speed":-0.07822630124912353,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.53610674288404,"sign":"Близнецы","signIndex":2,"degreeInSign":5.536106742884044,"formatted":"5°32′09″ Близнецов","speed":-0.016165903026947013,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.879295096717044,"sign":"Овен","signIndex":0,"degreeInSign":2.879295096717044,"formatted":"2°52′45″ Овна","speed":-0.027626420713875836,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.1268495710224,"sign":"Водолей","signIndex":10,"degreeInSign":3.126849571022376,"formatted":"3°07′36″ Водолея","speed":-0.007261148521564656,"retrograde":true,"house":5}],"contacts":[{"transit":"moon","natal":"sun","aspect":"conjunction","orb":0.17,"tone":0},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.02,"tone":-1},{"transit":"moon","natal":"saturn","aspect":"trine","orb":0.28,"tone":1},{"transit":"moon","natal":"mars","aspect":"sextile","orb":0.32,"tone":1},{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.15,"tone":-1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":1.01,"tone":1},{"transit":"sun","natal":"mc","aspect":"trine","orb":1.52,"tone":1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":0.88,"tone":1},{"transit":"moon","natal":"pluto","aspect":"opposition","orb":1.67,"tone":-1},{"transit":"sun","natal":"uranus","aspect":"square","orb":1.98,"tone":-1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":0.23,"strength":67,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"trine","natal":"saturn","tone":1,"speed":"fast","until":"до 17:31","text":"Лёгкое настроение в работе и обязательствах.","label":"Луна в трине к вашему Сатурну"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":0.04,"strength":54,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"sun","tone":0,"speed":"fast","until":"до 14:19","text":"Обострённые чувства в самоощущении.","label":"Луна в соединении с вашим Солнцем"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"moon","aspect":"trine","natal":"saturn","tone":1,"speed":"fast","until":"до 17:31","text":"Лёгкое настроение в работе и обязательствах.","label":"Луна в трине к вашему Сатурну"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":-0.26,"strength":72,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"sextile","natal":"mars","tone":1,"speed":"fast","until":"до 04:31","text":"Лёгкое настроение в делах, где нужен напор.","label":"Луна в секстиле к вашему Марсу"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":0.4,"strength":78,"drivers":[{"transit":"moon","aspect":"trine","natal":"saturn","tone":1,"speed":"fast","until":"до 17:31","text":"Лёгкое настроение в работе и обязательствах.","label":"Луна в трине к вашему Сатурну"},{"transit":"moon","aspect":"conjunction","natal":"sun","tone":0,"speed":"fast","until":"до 14:19","text":"Обострённые чувства в самоощущении.","label":"Луна в соединении с вашим Солнцем"},{"transit":"moon","aspect":"sextile","natal":"mars","tone":1,"speed":"fast","until":"до 04:31","text":"Лёгкое настроение в делах, где нужен напор.","label":"Луна в секстиле к вашему Марсу"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":0.11,"strength":59,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"sun","tone":0,"speed":"fast","until":"до 14:19","text":"Обострённые чувства в самоощущении.","label":"Луна в соединении с вашим Солнцем"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":0.23,"strength":22,"drivers":[{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"sun","aspect":"trine","natal":"mc","tone":1,"speed":"fast","until":"до 4 октября","text":"Уверенность и признание в карьере и репутации.","label":"Солнце в трине к вашему MC"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":-0.02,"strength":86,"drivers":[{"transit":"moon","aspect":"sextile","natal":"mars","tone":1,"speed":"fast","until":"до 04:31","text":"Лёгкое настроение в делах, где нужен напор.","label":"Луна в секстиле к вашему Марсу"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]}]},{"date":"2026-10-01","moon":{"sign":"Близнецы","signIn":"Близнецах","natalHouse":10,"phase":"убывающая","text":"Луна в вашем 10-м доме: на виду работа и репутация: хорошо показать результат."},"sky":[{"id":"sun","name":"Солнце","longitude":188.20729723978195,"sign":"Весы","signIndex":6,"degreeInSign":8.207297239781951,"formatted":"8°12′26″ Весов","speed":0.9829111971536981,"retrograde":false,"house":2},{"id":"moon","name":"Луна","longitude":69.26284368454537,"sign":"Близнецы","signIndex":2,"degreeInSign":9.262843684545373,"formatted":"9°15′46″ Близнецов","speed":14.283748260965531,"retrograde":false,"house":10},{"id":"mercury","name":"Меркурий","longitude":211.1746466008526,"sign":"Скорпион","signIndex":7,"degreeInSign":1.1746466008526113,"formatted":"1°10′28″ Скорпиона","speed":1.3168097049252128,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":218.4199031739147,"sign":"Скорпион","signIndex":7,"degreeInSign":8.41990317391469,"formatted":"8°25′11″ Скорпиона","speed":0.07352711437097735,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":121.90672337505316,"sign":"Лев","signIndex":4,"degreeInSign":1.9067233750531614,"formatted":"1°54′24″ Льва","speed":0.582138631331818,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":139.65838387443193,"sign":"Лев","signIndex":4,"degreeInSign":19.658383874431934,"formatted":"19°39′30″ Льва","speed":0.1785826715179913,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.54906770877733,"sign":"Овен","signIndex":0,"degreeInSign":11.54906770877733,"formatted":"11°32′56″ Овна","speed":-0.07837849260483579,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.51955683429856,"sign":"Близнецы","signIndex":2,"degreeInSign":5.519556834298555,"formatted":"5°31′10″ Близнецов","speed":-0.0169340157850437,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.851700219799909,"sign":"Овен","signIndex":0,"degreeInSign":2.851700219799909,"formatted":"2°51′06″ Овна","speed":-0.02756308393715234,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.11981611988676,"sign":"Водолей","signIndex":10,"degreeInSign":3.1198161198867638,"formatted":"3°07′11″ Водолея","speed":-0.006807261148606789,"retrograde":true,"house":5}],"contacts":[{"transit":"moon","natal":"mc","aspect":"conjunction","orb":0.08,"tone":0},{"transit":"moon","natal":"asc","aspect":"square","orb":0.11,"tone":-1},{"transit":"sun","natal":"mc","aspect":"trine","orb":0.54,"tone":1},{"transit":"moon","natal":"venus","aspect":"sextile","orb":0.04,"tone":1},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.06,"tone":-1},{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.24,"tone":-1},{"transit":"moon","natal":"mars","aspect":"square","orb":1.74,"tone":-1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":0.92,"tone":1},{"transit":"sun","natal":"jupiter","aspect":"square","orb":1.13,"tone":-1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":0.79,"tone":1},{"transit":"sun","natal":"uranus","aspect":"square","orb":1,"tone":-1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":0.12,"strength":78,"drivers":[{"transit":"moon","aspect":"sextile","natal":"venus","tone":1,"speed":"fast","until":"до 20:58","text":"Лёгкое настроение в отношениях и деньгах.","label":"Луна в секстиле к вашей Венере"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":0.08,"strength":93,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"mc","tone":0,"speed":"fast","until":"до 16:10","text":"Обострённые чувства в карьере и репутации.","label":"Луна в соединении с вашим MC"},{"transit":"sun","aspect":"trine","natal":"mc","tone":1,"speed":"fast","until":"до 4 октября","text":"Уверенность и признание в карьере и репутации.","label":"Солнце в трине к вашему MC"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":-0.01,"strength":90,"drivers":[{"transit":"moon","aspect":"sextile","natal":"venus","tone":1,"speed":"fast","until":"до 20:58","text":"Лёгкое настроение в отношениях и деньгах.","label":"Луна в секстиле к вашей Венере"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"square","natal":"mars","tone":-1,"speed":"fast","until":"до 2 октября, 06:58","text":"Раздражительность в делах, где нужен напор.","label":"Луна в квадрате к вашему Марсу"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":-1,"strength":36,"drivers":[{"transit":"moon","aspect":"square","natal":"asc","tone":-1,"speed":"fast","until":"до 2 октября, 02:13","text":"Раздражительность в том, как вас воспринимают.","label":"Луна в квадрате к вашему Асценденту"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"moon","aspect":"square","natal":"mars","tone":-1,"speed":"fast","until":"до 2 октября, 06:58","text":"Раздражительность в делах, где нужен напор.","label":"Луна в квадрате к вашему Марсу"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":0.11,"strength":9,"drivers":[{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"},{"transit":"sun","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 4 октября","text":"Давление на самолюбие в планах на рост.","label":"Солнце в квадрате к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":0.09,"strength":77,"drivers":[{"transit":"moon","aspect":"conjunction","natal":"mc","tone":0,"speed":"fast","until":"до 16:10","text":"Обострённые чувства в карьере и репутации.","label":"Луна в соединении с вашим MC"},{"transit":"sun","aspect":"trine","natal":"mc","tone":1,"speed":"fast","until":"до 4 октября","text":"Уверенность и признание в карьере и репутации.","label":"Солнце в трине к вашему MC"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":-0.46,"strength":71,"drivers":[{"transit":"moon","aspect":"square","natal":"mars","tone":-1,"speed":"fast","until":"до 2 октября, 06:58","text":"Раздражительность в делах, где нужен напор.","label":"Луна в квадрате к вашему Марсу"},{"transit":"moon","aspect":"sextile","natal":"venus","tone":1,"speed":"fast","until":"до 20:58","text":"Лёгкое настроение в отношениях и деньгах.","label":"Луна в секстиле к вашей Венере"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"}]}]},{"date":"2026-10-02","moon":{"sign":"Близнецы","signIn":"Близнецах","natalHouse":10,"phase":"последняя четверть","text":"Луна в вашем 10-м доме: на виду работа и репутация: хорошо показать результат."},"sky":[{"id":"sun","name":"Солнце","longitude":189.19053278825106,"sign":"Весы","signIndex":6,"degreeInSign":9.190532788251062,"formatted":"9°11′25″ Весов","speed":0.9835610488546297,"retrograde":false,"house":2},{"id":"moon","name":"Луна","longitude":83.53400850320782,"sign":"Близнецы","signIndex":2,"degreeInSign":23.534008503207815,"formatted":"23°32′02″ Близнецов","speed":14.249968927723824,"retrograde":false,"house":10},{"id":"mercury","name":"Меркурий","longitude":212.48073676746822,"sign":"Скорпион","signIndex":7,"degreeInSign":2.4807367674682155,"formatted":"2°28′50″ Скорпиона","speed":1.2952061122055705,"retrograde":false,"house":2},{"id":"venus","name":"Венера","longitude":218.4745623600753,"sign":"Скорпион","signIndex":7,"degreeInSign":8.47456236007531,"formatted":"8°28′28″ Скорпиона","speed":0.035680081374600166,"retrograde":false,"house":3},{"id":"mars","name":"Марс","longitude":122.48786762011292,"sign":"Лев","signIndex":4,"degreeInSign":2.4878676201129224,"formatted":"2°29′16″ Льва","speed":0.5801426776529697,"retrograde":false,"house":11},{"id":"jupiter","name":"Юпитер","longitude":139.83626355005106,"sign":"Лев","signIndex":4,"degreeInSign":19.836263550051058,"formatted":"19°50′10″ Льва","speed":0.17717021279282577,"retrograde":false,"house":11},{"id":"saturn","name":"Сатурн","longitude":11.470627586549085,"sign":"Овен","signIndex":0,"degreeInSign":11.470627586549085,"formatted":"11°28′14″ Овна","speed":-0.07849712093930801,"retrograde":true,"house":8},{"id":"uranus","name":"Уран","longitude":65.50223783593412,"sign":"Близнецы","signIndex":2,"degreeInSign":5.502237835934125,"formatted":"5°30′08″ Близнецов","speed":-0.017704498850358262,"retrograde":true,"house":9},{"id":"neptune","name":"Нептун","longitude":2.824170263580754,"sign":"Овен","signIndex":0,"degreeInSign":2.824170263580754,"formatted":"2°49′27″ Овна","speed":-0.027496733070495747,"retrograde":true,"house":7},{"id":"pluto","name":"Плутон","longitude":303.1132346364975,"sign":"Водолей","signIndex":10,"degreeInSign":3.113234636497509,"formatted":"3°06′47″ Водолея","speed":-0.006357189732665459,"retrograde":true,"house":5}],"contacts":[{"transit":"moon","natal":"mars","aspect":"square","orb":0.05,"tone":-1},{"transit":"sun","natal":"jupiter","aspect":"square","orb":0.15,"tone":-1},{"transit":"sun","natal":"mc","aspect":"trine","orb":0.44,"tone":1},{"transit":"saturn","natal":"venus","aspect":"conjunction","orb":0.14,"tone":-1},{"transit":"venus","natal":"mercury","aspect":"opposition","orb":0.29,"tone":-1},{"transit":"moon","natal":"asc","aspect":"square","orb":1.68,"tone":-1},{"transit":"venus","natal":"jupiter","aspect":"trine","orb":0.87,"tone":1},{"transit":"sun","natal":"uranus","aspect":"square","orb":0.02,"tone":-1},{"transit":"venus","natal":"uranus","aspect":"sextile","orb":0.74,"tone":1}],"spheres":[{"id":"love","name":"Отношения","about":"Партнёрство, романы, то, как вы сближаетесь с людьми.","tone":-0.41,"strength":75,"drivers":[{"transit":"sun","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 4 октября","text":"Давление на самолюбие в планах на рост.","label":"Солнце в квадрате к вашему Юпитеру"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"}]},{"id":"career","name":"Карьера","about":"Работа, статус, то, как вас видят в профессии.","tone":0.04,"strength":52,"drivers":[{"transit":"sun","aspect":"trine","natal":"mc","tone":1,"speed":"fast","until":"до 4 октября","text":"Уверенность и признание в карьере и репутации.","label":"Солнце в трине к вашему MC"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]},{"id":"money","name":"Деньги","about":"Доходы, траты, ощущение опоры и ресурсов.","tone":-0.74,"strength":74,"drivers":[{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"moon","aspect":"square","natal":"mars","tone":-1,"speed":"fast","until":"до 06:58","text":"Раздражительность в делах, где нужен напор.","label":"Луна в квадрате к вашему Марсу"},{"transit":"sun","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 4 октября","text":"Давление на самолюбие в планах на рост.","label":"Солнце в квадрате к вашему Юпитеру"}]},{"id":"health","name":"Здоровье и энергия","about":"Силы, режим, самочувствие.","tone":-1,"strength":23,"drivers":[{"transit":"moon","aspect":"square","natal":"mars","tone":-1,"speed":"fast","until":"до 06:58","text":"Раздражительность в делах, где нужен напор.","label":"Луна в квадрате к вашему Марсу"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"},{"transit":"moon","aspect":"square","natal":"asc","tone":-1,"speed":"fast","until":"до 02:13","text":"Раздражительность в том, как вас воспринимают.","label":"Луна в квадрате к вашему Асценденту"}]},{"id":"inner","name":"Внутренний мир","about":"Настроение, чувства, то, что происходит внутри.","tone":-0.24,"strength":14,"drivers":[{"transit":"sun","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 4 октября","text":"Давление на самолюбие в планах на рост.","label":"Солнце в квадрате к вашему Юпитеру"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"}]},{"id":"family","name":"Семья и дом","about":"Дом, родные, чувство корней.","tone":-0.11,"strength":64,"drivers":[{"transit":"sun","aspect":"square","natal":"jupiter","tone":-1,"speed":"fast","until":"до 4 октября","text":"Давление на самолюбие в планах на рост.","label":"Солнце в квадрате к вашему Юпитеру"},{"transit":"venus","aspect":"trine","natal":"jupiter","tone":1,"speed":"fast","until":"до 11 октября","text":"Тепло и лёгкость в планах на рост.","label":"Венера в трине к вашему Юпитеру"},{"transit":"sun","aspect":"trine","natal":"mc","tone":1,"speed":"fast","until":"до 4 октября","text":"Уверенность и признание в карьере и репутации.","label":"Солнце в трине к вашему MC"}]},{"id":"talk","name":"Общение и учёба","about":"Разговоры, переписка, поездки, новое знание.","tone":-1,"strength":66,"drivers":[{"transit":"moon","aspect":"square","natal":"mars","tone":-1,"speed":"fast","until":"до 06:58","text":"Раздражительность в делах, где нужен напор.","label":"Луна в квадрате к вашему Марсу"},{"transit":"saturn","aspect":"conjunction","natal":"venus","tone":-1,"speed":"slow","until":"до 20 октября","text":"Больше ответственности, меньше признания в отношениях и деньгах.","label":"Сатурн в соединении с вашей Венерой"},{"transit":"venus","aspect":"opposition","natal":"mercury","tone":-1,"speed":"fast","until":"до 14 октября","text":"Мелкие обиды и лишние траты в общении и делах.","label":"Венера в оппозиции к вашему Меркурию"}]}]}]}</script>
+<!-- DAY-DATA:END -->
+
+<script>
+  // ===== ДАННЫЕ И СОСТОЯНИЕ =====
+  // Две роли одной страницы. Если day.ts вшил данные в #day-data — это
+  // прототип для просмотра, он показывает их как есть. Если блок пуст
+  // (так его собирает app/build.sh) — это приложение: данные рождения
+  // хранятся в телефоне, а расчёт идёт здесь же, в фоновом потоке.
+  const EMBEDDED = (() => { try { return JSON.parse(document.getElementById('day-data').textContent); } catch (e) { return null; } })();
+  const APP = !EMBEDDED;
+  let DATA = EMBEDDED;
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let current = DATA ? DATA.days.length - 1 : 0;   // сегодня — последний день, вперёд не показываем
+  let openId = null;   // раскрытая сфера; переживает смену дня
+
+  // ===== ГЛИФЫ =====
+  const PLANETS = { sun:'☉', moon:'☽', mercury:'☿', venus:'♀', mars:'♂', jupiter:'♃', saturn:'♄', uranus:'♅', neptune:'♆', pluto:'♇', chiron:'⚷' };
+  // Аспекты — инлайн-SVG, а не символы шрифта: ⚹ (U+26B9) есть далеко не
+  // во всех шрифтах, и на части устройств вместо него пустой квадрат
+  const ASPECT_SVG = {
+    conjunction: '<circle cx="6.5" cy="9.5" r="3.5"/><path d="M9 7l4.5-4.5"/>',
+    sextile:     '<path d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6"/>',
+    square:      '<rect x="3" y="3" width="10" height="10"/>',
+    trine:       '<path d="M8 2.5l6 10.5H2z"/>',
+    opposition:  '<circle cx="4" cy="12" r="2.5"/><circle cx="12" cy="4" r="2.5"/><path d="M5.8 10.2l4.4-4.4"/>'
+  };
+  const AXES = { asc:'Асц', mc:'MC' };
+  const FE0E = '\uFE0E';
+  function glyphFor(id) {
+    if (AXES[id]) return AXES[id];
+    return PLANETS[id] ? PLANETS[id] + FE0E : '';
+  }
+  function aspectGlyph(a) {
+    return ASPECT_SVG[a] ? `<svg class="asp-ico" viewBox="0 0 16 16" aria-hidden="true">${ASPECT_SVG[a]}</svg>` : '';
+  }
+
+  // ===== ТОН =====
+  function toneLabel(tone) {
+    if (tone > 0.2) return 'помогает';
+    if (tone < -0.2) return 'мешает';
+    return 'спокойно';
+  }
+  function toneClass(tone) {
+    if (tone > 0.2) {
+      const a = Math.abs(tone);
+      if (a > 0.6) return 'tone-pos-strong';
+      if (a > 0.4) return 'tone-pos';
+      return 'tone-pos-weak';
+    }
+    if (tone < -0.2) {
+      const a = Math.abs(tone);
+      if (a > 0.6) return 'tone-neg-strong';
+      if (a > 0.4) return 'tone-neg';
+      return 'tone-neg-weak';
+    }
+    return 'tone-neutral';
+  }
+  function toneArrow(tone) {
+    if (tone > 0.2) return '↑';
+    if (tone < -0.2) return '↓';
+    return '•';
+  }
+
+  // знак в предложном падеже: «Луна в Рыбах»
+  const SIGN_IN = { 'Овен':'Овне', 'Телец':'Тельце', 'Близнецы':'Близнецах', 'Рак':'Раке', 'Лев':'Льве', 'Дева':'Деве',
+    'Весы':'Весах', 'Скорпион':'Скорпионе', 'Стрелец':'Стрельце', 'Козерог':'Козероге', 'Водолей':'Водолее', 'Рыбы':'Рыбах' };
+
+  // «Луна в 9-м доме: хорошее время…» → «Хорошее время…»: в центре колеса
+  // остаётся только сам совет, без астрологической приставки
+  function headline(text) {
+    const t = text.includes(':') ? text.slice(text.indexOf(':') + 1).trim() : text.trim();
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
+  // ===== ДАТА =====
+  function formatDate(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    // day+month вместе дают родительный падеж: «2 октября», а не «2 октябрь»
+    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  }
+  // подпись над датой есть у каждого дня: «Сегодня · пятница», «Вчера ·
+  // четверг», «среда» — иначе у «сегодня» шапка выше, чем у остальных
+  function kickerFor(iso, idx, last) {
+    const weekday = new Date(iso + 'T00:00:00').toLocaleDateString('ru-RU', { weekday: 'long' });
+    return idx === last ? `Сегодня · ${weekday}` : idx === last - 1 ? `Вчера · ${weekday}` : weekday;
+  }
+
+  // ===== ЭЛЕМЕНТЫ =====
+  const el = {
+    prev: document.getElementById('prev-day'),
+    next: document.getElementById('next-day'),
+    kicker: document.getElementById('day-kicker'),
+    date: document.getElementById('day-date'),
+    wheel: document.getElementById('day-wheel'),
+    moonChip: document.getElementById('moon-chip'),
+    moonText: document.getElementById('moon-text'),
+    spheres: document.getElementById('spheres'),
+    wheelCard: document.getElementById('wheel-card'),
+    wheelTitle: document.getElementById('wheel-title'),
+    wheelPlace: document.getElementById('wheel-place'),
+    wheelDeco: document.getElementById('wheel-deco'),
+    status: document.getElementById('compute-status'),
+    settings: document.getElementById('settings'),
+    settingsClose: document.getElementById('settings-close'),
+    form: document.getElementById('birth-form'),
+    fDate: document.getElementById('f-date'),
+    fTime: document.getElementById('f-time'),
+    fPlace: document.getElementById('f-place'),
+    fList: document.getElementById('f-place-list'),
+    fError: document.getElementById('f-error'),
+    fSubmit: document.getElementById('f-submit'),
+    version: document.getElementById('app-version'),
+    checkUpdate: document.getElementById('check-update'),
+    updateStatus: document.getElementById('update-status')
+  };
+
+  // ===== РЕНДЕР =====
+  function renderHeader(day) {
+    el.date.textContent = formatDate(day.date);
+    el.kicker.textContent = kickerFor(day.date, current, DATA.days.length - 1);
+    el.prev.disabled = current === 0;
+    el.next.disabled = current === DATA.days.length - 1;
+  }
+
+  // Колесо показывает небо выбранного дня (планеты дня в ваших домах),
+  // а не карту рождения — она на отдельном экране. Данные уходят
+  // сообщением: страница колеса загружается один раз, анимация сборки
+  // играет только при первом показе.
+  let wheelReady = false;
+  function sendToWheel(msg) { if (wheelReady) el.wheel.contentWindow.postMessage(msg, '*'); }
+  function renderWheelFor(day) {
+    el.moonText.textContent = `Луна в ${day.moon.signIn || SIGN_IN[day.moon.sign] || day.moon.sign} · ${day.moon.natalHouse} дом`;
+    sendToWheel({ type: 'sky', date: day.date, sky: day.sky, contacts: day.contacts, natal: DATA.natal, center: headline(day.moon.text) });
+  }
+  el.wheel.addEventListener('load', () => { wheelReady = true; if (DATA) renderWheelFor(DATA.days[current]); });
+  // насколько поднять iframe: от верха страницы до места колеса
+  const lift = Math.round(el.wheel.parentElement.getBoundingClientRect().top + scrollY);
+  document.documentElement.style.setProperty('--wheel-lift', lift + 'px');
+  el.wheel.src = `wheel.html?embed=1&top=${lift}`;
+
+  function renderSpheres(day) {
+    el.spheres.innerHTML = '';
+    day.spheres.forEach((s, i) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'sphere' + (openId === s.id ? ' open' : '');
+      const btn = document.createElement('button');
+      btn.className = 'sphere-row';
+      btn.type = 'button';
+      btn.setAttribute('aria-expanded', String(openId === s.id));
+      btn.setAttribute('aria-controls', 'sp-' + s.id);
+      btn.setAttribute('aria-label', `${s.name}: ${toneLabel(s.tone)}, сила ${s.strength} из 100`);
+      btn.innerHTML = `
+        <span class="sphere-icon"><svg><use href="#i-${s.id}"/></svg></span>
+        <span class="sphere-name">${s.name}</span>
+        <span class="sphere-bar-wrap">
+          <span class="sphere-track"></span>
+          <span class="sphere-fill ${toneClass(s.tone)}"></span>
+        </span>
+        <span class="sphere-value">${toneArrow(s.tone)} ${s.strength}</span>
+      `;
+      btn.addEventListener('click', () => toggleSphere(s.id));
+      wrap.appendChild(btn);
+      wrap.appendChild(detailFor(s));
+      el.spheres.appendChild(wrap);
+
+      const fill = btn.querySelector('.sphere-fill');
+      const pct = s.strength;
+      fill.style.width = '0%';
+      const delay = REDUCED ? 0 : i * 40;
+      fill.style.transitionDelay = delay + 'ms';
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          // тихий день (сила 1–3) — короткий «огонёк», а не пустая дорожка:
+          // пустота читается как сбой, а это просто день без влияний
+          fill.style.width = Math.max(pct, 4) + '%';
+        });
+      });
+    });
+  }
+
+  // ===== РАСКРЫТИЕ =====
+  // Открыта одна сфера за раз: повторный тап сворачивает, тап по другой
+  // сворачивает прежнюю. Тон и сила — просто текстом, без плашек.
+  function detailFor(sphere) {
+    const box = document.createElement('div');
+    box.className = 'sphere-detail';
+    box.id = 'sp-' + sphere.id;
+    box.setAttribute('role', 'region');
+    box.setAttribute('aria-label', sphere.name);
+    const tc = toneClass(sphere.tone);
+    let drivers = '';
+    if (!sphere.drivers || sphere.drivers.length === 0) {
+      drivers = '<li class="drivers-empty">Особых влияний нет — обычный день</li>';
+    } else {
+      drivers = sphere.drivers.map(d => {
+        const dotCls = d.tone > 0 ? 'tone-pos' : (d.tone < 0 ? 'tone-neg' : 'tone-neutral');
+        return `<li class="driver" tabindex="0" data-transit="${d.transit}" data-natal="${d.natal}">
+          <span class="driver-dot ${dotCls}"></span>
+          <span class="driver-glyphs" role="img" aria-label="${d.label || ''}">${glyphFor(d.transit)} ${aspectGlyph(d.aspect)} ${glyphFor(d.natal)}</span>
+          <span class="driver-body">
+            <span class="driver-text">${d.text}</span>
+            ${d.until ? `<span class="driver-when">${d.until}</span>` : ''}
+          </span>
+        </li>`;
+      }).join('');
+    }
+    box.innerHTML = `<div class="sphere-detail-inner"><div class="sphere-detail-body">
+      <p class="detail-line"><span class="detail-tone ${tc}">${toneLabel(sphere.tone)}</span><span class="detail-sep">·</span>Сила ${sphere.strength}</p>
+      <p class="detail-about">${sphere.about}</p>
+      <ul class="drivers">${drivers}</ul>
+    </div></div>`;
+    return box;
+  }
+
+  // Наведение (на телефоне — тап) на причину подсвечивает на колесе
+  // планету дня и вашу натальную точку, между которыми этот аспект
+  // Снятие подсветки откладывается: при переходе мыши на соседнюю строку
+  // колесо не должно на миг показывать «всё сразу» между двумя аспектами.
+  let pinned = null, clearTimer = 0;
+  function highlight(li) {
+    clearTimeout(clearTimer);
+    if (li) { sendToWheel({ type: 'highlight', transit: li.dataset.transit, natal: li.dataset.natal }); return; }
+    clearTimer = setTimeout(() => sendToWheel({ type: 'highlight' }), 120);
+  }
+  el.spheres.addEventListener('mouseover', e => { const li = e.target.closest('.driver'); if (li && !pinned) highlight(li); });
+  el.spheres.addEventListener('mouseout', e => {
+    const li = e.target.closest('.driver'), to = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('.driver') : null;
+    if (li && !li.contains(e.relatedTarget) && !to && !pinned) highlight(null);
+  });
+  el.spheres.addEventListener('focusin', e => { const li = e.target.closest('.driver'); if (li) highlight(li); });
+  el.spheres.addEventListener('focusout', e => { if (e.target.closest('.driver') && !pinned) highlight(null); });
+  el.spheres.addEventListener('click', e => {
+    const li = e.target.closest('.driver'); if (!li) return;
+    el.spheres.querySelectorAll('.driver.is-hl').forEach(x => x !== li && x.classList.remove('is-hl'));
+    pinned = li.classList.toggle('is-hl') ? li : null;
+    highlight(pinned);
+  });
+
+  function toggleSphere(id) {
+    pinned = null; highlight(null);
+    openId = openId === id ? null : id;
+    el.spheres.querySelectorAll('.sphere').forEach(w => {
+      const isOpen = w.querySelector('.sphere-detail').id === 'sp-' + openId;
+      w.classList.toggle('open', isOpen);
+      w.querySelector('.sphere-row').setAttribute('aria-expanded', String(isOpen));
+    });
+  }
+
+  // ===== СОБЫТИЯ =====
+  el.prev.addEventListener('click', () => {
+    if (DATA && current > 0) { current--; render(); }
+  });
+  el.next.addEventListener('click', () => {
+    if (DATA && current < DATA.days.length - 1) { current++; render(); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !el.settings.hidden && profile) closeSettings();
+    else if (e.key === 'Escape' && openId) toggleSphere(openId);
+  });
+
+  // свайп по экрану — переключение дней
+  let touchStartX = 0, touchStartY = 0;
+  document.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].clientX;
+    touchStartY = e.changedTouches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (DATA && !document.body.classList.contains('settings-open') && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
+      if (dx < 0 && current < DATA.days.length - 1) { current++; render(); }
+      else if (dx > 0 && current > 0) { current--; render(); }
+    }
+  }, { passive: true });
+
+  // ===== ЗАПУСК =====
+  function render() {
+    const day = DATA.days[current];
+    renderHeader(day);
+    renderWheelFor(day);
+    renderSpheres(day);
+  }
+
+  el.wheelDeco.innerHTML = `<svg><use href="#i-wheel"/></svg>`;
+
+  // ===== ПРОТОТИП: ДАННЫЕ ВШИТЫ В СТРАНИЦУ =====
+  if (!APP) {
+    el.wheelTitle.textContent = DATA.person.title || 'Натальная карта';
+    el.wheelPlace.textContent = '· ' + (DATA.person.place || '');
+    el.wheelCard.disabled = true;
+    render();
+  }
+
+  // ===== ПРИЛОЖЕНИЕ =====
+  // Версию подставляет app/build.sh; в прототипе остаётся «dev».
+  const APP_VERSION = '__APP_VERSION__';
+  const RELEASES_API = 'https://api.github.com/repos/AstroLab-you/astrolab-day/releases/latest';
+  const PROFILE_KEY = 'astrolab_day_profile', CACHE_KEY = 'astrolab_day_forecast';
+  const SPHERE_NAMES = [['love', 'Отношения'], ['career', 'Карьера'], ['money', 'Деньги'], ['health', 'Здоровье и энергия'],
+    ['inner', 'Внутренний мир'], ['family', 'Семья и дом'], ['talk', 'Общение и учёба']];
+  const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* память переполнена — просто не кэшируем */ } }
+  };
+  let profile = APP ? store.get(PROFILE_KEY) : null;
+  const deviceTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const todayIn = tz => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+  function profileLine(p) {
+    const [y, m, d] = p.date.split('-').map(Number);
+    return `${d} ${MONTHS_GEN[m - 1]} ${y}, ${p.time} · ${p.place.name}`;
+  }
+  function updateCard() {
+    el.wheelTitle.textContent = 'Данные рождения';
+    el.wheelPlace.textContent = profile ? profileLine(profile) : 'не указаны';
+  }
+
+  // Пока идёт расчёт: шапка уже с сегодняшней датой, полосы пустые
+  function showPending(today) {
+    el.date.textContent = formatDate(today);
+    el.kicker.textContent = kickerFor(today, 0, 0);
+    el.prev.disabled = el.next.disabled = true;
+    el.moonText.textContent = 'Луна …';
+    document.querySelector('.screen').classList.add('is-computing');
+    el.spheres.innerHTML = SPHERE_NAMES.map(([id, name]) => `<div class="sphere"><div class="sphere-row" aria-hidden="true">
+      <span class="sphere-icon"><svg><use href="#i-${id}"/></svg></span><span class="sphere-name">${name}</span>
+      <span class="sphere-bar-wrap"><span class="sphere-track"></span></span><span class="sphere-value">…</span></div></div>`).join('');
+    el.status.textContent = 'Считаю небо…';
+  }
+  function show(data) {
+    DATA = data; current = data.days.length - 1;
+    document.querySelector('.screen').classList.remove('is-computing');
+    el.status.textContent = '';
+    render();
+  }
+
+  // Расчёт — в модульном Web Worker (engine.js + sweph.mjs). Результат
+  // кэшируется на день: повторное открытие показывает его сразу.
+  let worker = null;
+  function compute() {
+    const tz = deviceTz(), today = todayIn(tz);
+    const key = JSON.stringify([profile, today, tz, APP_VERSION]);
+    const cached = store.get(CACHE_KEY);
+    if (cached && cached.key === key) { show(cached.data); return; }
+    showPending(today);
+    if (!worker) {
+      try { worker = new Worker('engine.js', { type: 'module' }); }
+      catch (e) { el.status.textContent = 'Расчёт недоступен: страницу нужно открыть в приложении.'; return; }
+    }
+    const [y, m, d] = profile.date.split('-').map(Number), [hh, mm] = profile.time.split(':').map(Number);
+    worker.onmessage = e => {
+      if (e.data.type === 'done') { store.set(CACHE_KEY, { key, data: e.data.forecast }); show(e.data.forecast); }
+      if (e.data.type === 'error') { el.status.textContent = 'Не получилось посчитать: ' + e.data.message; }
+    };
+    worker.onerror = () => { el.status.textContent = 'Расчёт недоступен: страницу нужно открыть в приложении.'; };
+    worker.postMessage({
+      natal: { birth: { year: y, month: m, day: d, hour: hh, minute: mm }, place: { latitude: profile.place.lat, longitude: profile.place.lon, timeZone: profile.place.tz } },
+      nowTz: tz, today, place: profile.place.name
+    });
+  }
+
+  // ===== ПАНЕЛЬ ДАННЫХ РОЖДЕНИЯ =====
+  let lastFocus = null;
+  function openSettings() {
+    lastFocus = document.activeElement;
+    el.settings.hidden = false; document.body.classList.add('settings-open');
+    el.settingsClose.hidden = !profile;   // первый запуск: без данных закрывать некуда
+    el.fDate.max = todayIn(deviceTz());
+    if (profile) { el.fDate.value = profile.date; el.fTime.value = profile.time; el.fPlace.value = placeLabel(profile.place); chosen = profile.place; }
+    el.fError.textContent = '';
+    (profile ? el.settingsClose : el.fDate).focus();
+  }
+  function closeSettings() {
+    el.settings.hidden = true; document.body.classList.remove('settings-open');
+    if (lastFocus) lastFocus.focus();
+  }
+  el.settingsClose.addEventListener('click', closeSettings);
+  el.wheelCard.addEventListener('click', () => { if (APP) openSettings(); });
+
+  // ===== ПОИСК МЕСТА =====
+  // cities.json — выжимка GeoNames (src/build-cities.ts): 43 тыс. мест,
+  // отсортированы по населению, поэтому первым находится крупный город.
+  let cities = null, chosen = null;
+  const normalize = t => t.toLowerCase().replace(/ё/g, 'е').replace(/[‐-—-]/g, ' ').trim();
+  // «Москва, Москва, Россия» → «Москва, Россия»: регион с именем города не повторяем
+  const placeLabel = p => { const w = (p.where || '').startsWith(p.name + ', ') ? p.where.slice(p.name.length + 2) : p.where; return w ? `${p.name}, ${w}` : p.name; };
+  function loadCities() {
+    if (cities) return Promise.resolve(cities);
+    return fetch('cities.json').then(r => r.json()).then(j => {
+      cities = { ...j, keys: j.rows.map(r => [normalize(r[0]), normalize(r[1] || '')]) };
+      return cities;
+    });
+  }
+  function searchPlaces(q) {
+    const n = normalize(q); if (n.length < 2) return [];
+    const out = [], seen = new Set();
+    const take = test => { for (let i = 0; i < cities.rows.length && out.length < 8; i++) if (!seen.has(i) && test(cities.keys[i])) { seen.add(i); out.push(i); } };
+    take(k => k[0].startsWith(n) || k[1].startsWith(n));
+    take(k => k[0].includes(n) || k[1].includes(n));
+    return out.map(i => { const r = cities.rows[i]; return { name: r[0], where: cities.where[r[2]], lat: r[3], lon: r[4], tz: cities.tz[r[5]] }; });
+  }
+  let found = [];
+  el.fPlace.addEventListener('input', () => {
+    chosen = null;
+    loadCities().then(() => {
+      found = searchPlaces(el.fPlace.value);
+      el.fList.innerHTML = found.length
+        ? found.map((p, i) => `<li role="option"><button type="button" data-i="${i}"><span>${p.name}</span><span class="place-where">${placeLabel(p).slice(p.name.length + 2)}</span></button></li>`).join('')
+        : (normalize(el.fPlace.value).length >= 2 ? '<li class="place-empty">Ничего не нашлось. Попробуйте ближайший город.</li>' : '');
+      el.fPlace.setAttribute('aria-expanded', String(found.length > 0));
+    }).catch(() => { el.fError.textContent = 'Не удалось загрузить список городов.'; });
+  });
+  el.fList.addEventListener('click', e => {
+    const b = e.target.closest('button[data-i]'); if (!b) return;
+    chosen = found[+b.dataset.i];
+    el.fPlace.value = placeLabel(chosen);
+    el.fList.innerHTML = ''; el.fPlace.setAttribute('aria-expanded', 'false');
+    el.fError.textContent = '';
+  });
+
+  el.form.addEventListener('submit', e => {
+    e.preventDefault();
+    const date = el.fDate.value, time = el.fTime.value;
+    if (!date) { el.fError.textContent = 'Укажите дату рождения.'; el.fDate.focus(); return; }
+    if (date > todayIn(deviceTz())) { el.fError.textContent = 'Дата рождения не может быть в будущем.'; el.fDate.focus(); return; }
+    if (!time) { el.fError.textContent = 'Укажите время рождения.'; el.fTime.focus(); return; }
+    if (!chosen) { el.fError.textContent = 'Выберите место из списка: начните вводить название.'; el.fPlace.focus(); return; }
+    profile = { date, time, place: chosen };
+    store.set(PROFILE_KEY, profile);
+    updateCard(); closeSettings(); compute();
+  });
+
+  // ===== ОБНОВЛЕНИЯ =====
+  // Новые версии — в релизах открытого репозитория. Приложение сверяет
+  // номер и даёт ссылку на APK: Android скачает его в браузере и
+  // поставит поверх, данные рождения сохранятся.
+  const newer = (a, b) => {
+    const x = a.split('.').map(Number), y = b.split('.').map(Number);
+    for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+    return false;
+  };
+  async function checkUpdate(silent) {
+    if (!silent) { el.updateStatus.textContent = 'Проверяю…'; el.checkUpdate.disabled = true; }
+    try {
+      const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+      if (r.status === 404) { if (!silent) el.updateStatus.textContent = 'Опубликованных версий пока нет.'; return; }
+      if (!r.ok) throw new Error(r.status);
+      const rel = await r.json(), latest = String(rel.tag_name || '').replace(/^v/, '');
+      const apk = (rel.assets || []).find(a => a.name.endsWith('.apk'));
+      if (apk && newer(latest, APP_VERSION)) {
+        el.updateStatus.innerHTML = `Доступна версия ${latest}. <a href="${apk.browser_download_url}">Скачать</a> — когда файл загрузится, откройте его и нажмите «Обновить».`;
+        if (!el.wheelCard.querySelector('.wheel-update'))
+          el.wheelCard.querySelector('.wheel-text').insertAdjacentHTML('beforeend', `<span class="wheel-update">Доступно обновление ${latest}</span>`);
+      } else if (!silent) el.updateStatus.textContent = `У вас последняя версия.`;
+    } catch (e) {
+      if (!silent) el.updateStatus.textContent = 'Нет связи с GitHub. Проверьте интернет и попробуйте ещё раз.';
+    } finally { el.checkUpdate.disabled = false; }
+  }
+  el.checkUpdate.addEventListener('click', () => checkUpdate(false));
+
+  if (APP) {
+    el.version.textContent = APP_VERSION;
+    updateCard();
+    if (profile) compute(); else { showPending(todayIn(deviceTz())); el.status.textContent = ''; openSettings(); }
+    checkUpdate(true);
+    // приложение могли оставить открытым до утра: новый день — новый расчёт
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && profile && DATA && DATA.generated.today !== todayIn(deviceTz())) compute();
+    });
+  }
+</script>
+<script>
+/* ============================================================================
+   ЗВЕЗДОПАД НА ФОНЕ — только ночью, с 21:00 до 04:00 по часам посетителя.
+
+   Зачем время: днём мерцающий фон выглядит как украшение ради украшения,
+   а поздним вечером — как то, ради чего сюда и приходят. Час берётся
+   местный: человек в Иркутске должен увидеть небо в свои девять вечера,
+   а не в московские.
+
+   Что рисуем: редкие неподвижные звёзды, которые медленно дышат яркостью,
+   и изредка — падающая. Плотность нарочно низкая. Это фон под текстом,
+   и если он заметен сам по себе, значит его слишком много.
+
+   Бережём батарею: во вкладке в фоне цикл не крутится, при
+   prefers-reduced-motion не запускается вовсе, плотность считается
+   от площади экрана.
+   ============================================================================ */
+(function(){
+  var cv = document.getElementById('skyfall');
+  if(!cv || !cv.getContext) return;
+
+  var ctx = cv.getContext('2d');
+  var W = 0, H = 0, dpr = 1;
+  var stars = [], meteors = [], raf = null, last = 0, nextMeteor = 0;
+  var running = false;
+
+  var css = getComputedStyle(document.documentElement);
+  var STAR  = (css.getPropertyValue('--star')       || 'rgba(224,236,255,0.85)').trim();
+  var TRAIL = (css.getPropertyValue('--star-trail') || 'rgba(224,196,140,0.9)').trim();
+
+  function reduced(){
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /* Ночь — с 21:00 до 04:00. Граница открытая сверху и закрытая снизу:
+     в 04:00 небо уже гаснет. */
+  function isNight(){
+    var h = new Date().getHours();
+    return h >= 21 || h < 4;
+  }
+
+  function size(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);   // выше двух глазу не видно, а работы вчетверо больше
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width  = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    cv.style.width  = W + 'px';
+    cv.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    seed();
+  }
+
+  function seed(){
+    // Одна звезда примерно на 14000 px² — на ноутбуке выходит около сотни.
+    var n = Math.max(30, Math.min(140, Math.round(W * H / 14000)));
+    stars = [];
+    for(var i = 0; i < n; i++){
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: 0.5 + Math.random() * 1.1,
+        // Каждая дышит в своём темпе и со своей фазы, иначе всё поле
+        // мигает разом и это выглядит как сбой отрисовки.
+        speed: 0.4 + Math.random() * 0.9,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  function addMeteor(){
+    // Падают сверху и вбок, наискось — как настоящие. Стартуют и за правым
+    // краем тоже, иначе левая половина экрана остаётся без единой.
+    var fromRight = Math.random() < 0.5;
+    var len = 90 + Math.random() * 140;
+    meteors.push({
+      x: Math.random() * (W * 1.4) - W * 0.2,
+      y: -40 - Math.random() * 120,
+      vx: (fromRight ? -1 : 1) * (120 + Math.random() * 90),
+      vy: 260 + Math.random() * 180,
+      len: len,
+      life: 0,
+      ttl: 1.1 + Math.random() * 0.9
+    });
+  }
+
+  function frame(now){
+    raf = requestAnimationFrame(frame);
+    var dt = last ? Math.min((now - last) / 1000, 0.05) : 0;
+    last = now;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Неподвижные звёзды
+    for(var i = 0; i < stars.length; i++){
+      var s = stars[i];
+      var a = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(s.phase + now / 1000 * s.speed));
+      ctx.globalAlpha = a;
+      ctx.fillStyle = STAR;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Падающие
+    if(now > nextMeteor){
+      addMeteor();
+      nextMeteor = now + 1800 + Math.random() * 4200;
+    }
+    for(var j = meteors.length - 1; j >= 0; j--){
+      var m = meteors[j];
+      m.life += dt;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+      if(m.life > m.ttl || m.y > H + 80){ meteors.splice(j, 1); continue; }
+
+      // Хвост тянется назад по вектору движения и тает к концу.
+      var k = Math.hypot(m.vx, m.vy) || 1;
+      var tx = m.x - (m.vx / k) * m.len;
+      var ty = m.y - (m.vy / k) * m.len;
+      var fade = 1 - m.life / m.ttl;
+
+      var g = ctx.createLinearGradient(m.x, m.y, tx, ty);
+      g.addColorStop(0, TRAIL);
+      g.addColorStop(1, 'rgba(224,196,140,0)');
+      ctx.globalAlpha = Math.max(0, fade);
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(tx, ty);
+      ctx.lineTo(m.x, m.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function start(){
+    if(running) return;
+    running = true;
+    cv.classList.add('on');
+    size();
+    last = 0; nextMeteor = 0;
+    raf = requestAnimationFrame(frame);
+  }
+
+  function stop(){
+    if(!running) return;
+    running = false;
+    cv.classList.remove('on');
+    if(raf) cancelAnimationFrame(raf);
+    raf = null;
+    meteors = [];
+    ctx.clearRect(0, 0, W, H);
+  }
+
+  /* Одно место, которое решает, крутиться небу или нет: ночь, вкладка
+     на виду и человек не просил убрать анимации. Проверяем раз в минуту,
+     чтобы страница, открытая с вечера, погасила небо сама. */
+  function decide(){
+    if(isNight() && !document.hidden && !reduced()) start(); else stop();
+  }
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function(){
+    if(!running) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(size, 200);
+  });
+  document.addEventListener('visibilitychange', decide);
+
+  decide();
+  setInterval(decide, 60000);
+})();
+</script>
+</body>
+</html>
