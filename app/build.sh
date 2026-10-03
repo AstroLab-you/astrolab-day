@@ -7,7 +7,8 @@
 # 1. www/: экран дня (index.html) и колесо без вшитых данных — так
 #    страница понимает, что она приложение, и считает сама; движок
 #    (engine.js, esbuild из src/app-engine.ts), Swiss Ephemeris в WASM
-#    (../wasm/sweph.mjs) и справочник городов (cities.json).
+#    (../wasm/sweph.mjs), справочник городов (cities.json), экран «Небо»
+#    (sky.html) и его звёздный справочник (sky.json).
 # 2. Capacitor переносит www/ в Android-проект, Gradle собирает APK,
 #    подписанный ключом из ~/.config/astrolab-day/keystore.properties.
 #
@@ -32,10 +33,11 @@ const strip = (src, dst, begin, end, id) => {
 };
 strip('../day.html', 'www/index.html', '<!-- DAY-DATA:BEGIN -->', '<!-- DAY-DATA:END -->', 'day-data');
 strip('../wheel.html', 'www/wheel.html', '<!-- CHART-DATA:BEGIN -->', '<!-- CHART-DATA:END -->', 'chart-data');
+fs.writeFileSync('www/sky.html', fs.readFileSync('../sky.html', 'utf8'));
 JS
 (cd .. && npx esbuild src/app-engine.ts --bundle --format=esm --platform=browser --target=chrome90 \
    --external:./sweph.mjs --log-level=warning --outfile=app/www/engine.js)
-cp ../wasm/sweph.mjs cities.json www/
+cp ../wasm/sweph.mjs cities.json sky.json www/
 [ "${1:-}" = www ] && { echo "www/ собран, версия $VERSION"; exit 0; }
 
 npx cap sync android >/dev/null

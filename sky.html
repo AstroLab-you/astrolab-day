@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Небо над вами</title>
+<!--
+  ===== НЕБО НАД ВАМИ — ПРОТОТИП =====
+
+  Карта звёздного неба в реальном времени: телефон наводят на небо и видят,
+  где какие созвездия и планеты. Экран приложения «прогноз на день»
+  (tools/natal-calc/app), открывается с экрана дня; системная «Назад»
+  возвращает обратно.
+
+  Откуда что берётся:
+    • куда смотрит телефон — датчик ориентации (deviceorientationabsolute:
+      компас + гироскоп + акселерометр). Нет компаса — небо водят пальцем;
+      компас ошибается на 5–15° — горизонтальный свайп его подправляет;
+    • где человек — GPS, запоминается в телефоне и никуда не уходит;
+    • звёзды и созвездия — app/sky.json (d3-celestial, BSD-3), J2000;
+    • планеты — Swiss Ephemeris в WebAssembly, тот же движок, что считает
+      день (engine.js, сообщение {type:'sky'}), раз в минуту.
+
+  Знак и созвездие показываются оба и честно расходятся: знаки зодиака
+  отсчитываются от точки весеннего равноденствия, а она из-за прецессии
+  ползёт по небу на 1° за 72 года. Эклиптика с метками знаков — латунная
+  линия, фигуры созвездий — под ней.
+
+  Проекция — гномоническая (как у камеры): большие круги неба, в том
+  числе горизонт и эклиптика, ложатся прямыми линиями. Поэтому земля под
+  горизонтом — просто полуплоскость экрана.
+-->
+<style>
+  /* ===== ПАЛИТРА ===== (как у экрана дня) */
+  :root {
+    --bg:          #1A2036;
+    --bg-black:    #0B0E1C;
+    --card-solid:  #232B47;
+    --accent:      #C9A45C;
+    --periwinkle:  #E0C48C;
+    --text:        #F4F1E9;
+    --text-dim:    rgba(244,241,233,0.78);
+    --muted:       rgba(244,241,233,0.5);
+    --border:      rgba(244,241,233,0.14);
+    --modal-border: rgba(201,164,92,0.28);
+    --chip-bg:     rgba(26,32,54,0.72);
+    --font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --glyph-font: 'Segoe UI Symbol','Apple Symbols','Noto Sans Symbols','Noto Sans Symbols 2','DejaVu Sans',sans-serif;
+
+    /* небо на canvas: ночь, сумерки, земля, линии */
+    --sky-night:   #070A16;
+    --sky-zenith:  #0E1430;
+    --sky-twilight:#2A3360;
+    --ground:      rgba(20,16,12,0.82);
+    --horizon:     rgba(224,196,140,0.55);
+    --con-line:    rgba(160,180,230,0.28);
+    --con-zodiac:  rgba(201,164,92,0.45);
+    --con-label:   rgba(180,195,235,0.55);
+    --ecliptic:    rgba(201,164,92,0.6);
+    --star-0: #A9C4FF; --star-1: #D4E0FF; --star-2: #FFF8EE; --star-3: #FFE2B0; --star-4: #FFBE8A;
+    --sun:         #FFD36B;
+    --moon:        #E8E6DC;
+    --planet:      #C9A45C;
+    --target:      #E0C48C;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: var(--sky-night); color: var(--text); font-family: var(--font);
+    -webkit-font-smoothing: antialiased; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #sky { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ===== ВЕРХ: НАЗАД, НАЗВАНИЕ, РЕЖИМ ===== */
+  .sky-top { position: fixed; top: 0; left: 0; right: 0; z-index: 2; display: flex; align-items: center; gap: 8px;
+    padding: calc(8px + env(safe-area-inset-top)) 10px 8px; background: linear-gradient(180deg, var(--bg-black), transparent); }
+  .sky-back { width: 44px; height: 44px; border: 0; border-radius: 12px; background: none; color: var(--accent); font-size: 28px; line-height: 1; cursor: pointer; }
+  .sky-title { flex: 1; min-width: 0; }
+  .sky-title b { display: block; font-size: 16px; }
+  .sky-title small { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sky-mode { min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--modal-border); background: var(--chip-bg);
+    color: var(--periwinkle); font: inherit; font-size: 13px; cursor: pointer; }
+
+  /* ===== ЦЕНТР: ПРИЦЕЛ И ЧТО ПЕРЕД ВАМИ ===== */
+  .sky-aim { position: fixed; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%;
+    border: 1.5px solid var(--modal-border); pointer-events: none; z-index: 1; }
+  .sky-aim-text { position: fixed; left: 0; right: 0; top: calc(50% + 26px); text-align: center; font-size: 13px; color: var(--text-dim);
+    pointer-events: none; z-index: 1; text-shadow: 0 1px 4px var(--bg-black); padding: 0 24px; }
+
+  /* ===== ПОДСКАЗКА ===== */
+  .sky-hint { position: fixed; left: 12px; right: 12px; top: calc(68px + env(safe-area-inset-top)); z-index: 2; font-size: 13px; color: var(--text-dim);
+    background: var(--chip-bg); border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px; transition: opacity .4s; }
+  .sky-hint:empty, .sky-hint.gone { opacity: 0; pointer-events: none; }
+
+  /* ===== НИЗ: ПЛАНЕТЫ ===== */
+  .sky-bodies { position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    padding: 10px 10px calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(0deg, var(--bg-black), transparent); touch-action: pan-x; }
+  .sky-bodies::-webkit-scrollbar { display: none; }
+  .sky-chip { flex: 0 0 auto; min-height: 40px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--chip-bg);
+    color: var(--text-dim); font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .sky-chip i { font-style: normal; font-family: var(--glyph-font); color: var(--accent); font-size: 15px; }
+  .sky-chip.on { border-color: var(--accent); color: var(--text); }
+  .sky-chip.below { opacity: .55; }
+
+  /* ===== КАРТОЧКА ПЛАНЕТЫ ===== */
+  .sky-card { position: fixed; left: 10px; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 3; max-width: 460px; margin: 0 auto;
+    background: var(--card-solid); border: 1px solid var(--modal-border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
+    animation: pop .2s ease; touch-action: pan-y; }
+  .sky-card[hidden] { display: none; }
+  @keyframes pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .sky-card-head { display: flex; align-items: center; gap: 10px; }
+  .sky-card-head i { font-style: normal; font-family: var(--glyph-font); color: var(--accent); font-size: 22px; }
+  .sky-card-head b { flex: 1; font-size: 17px; }
+  .sky-card-x { width: 40px; height: 40px; border: 0; border-radius: 10px; background: none; color: var(--muted); font-size: 22px; cursor: pointer; }
+  .sky-row { font-size: 14px; color: var(--text-dim); }
+  .sky-row b { color: var(--text); font-weight: 600; }
+  .sky-note { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+  .sky-today { font-size: 13.5px; color: var(--text-dim); padding-left: 12px; border-left: 2px solid var(--modal-border); }
+  @media (prefers-reduced-motion: reduce) { .sky-card { animation: none; } }
+</style>
+</head>
+<body>
+<canvas id="sky" aria-label="Карта звёздного неба"></canvas>
+
+<header class="sky-top">
+  <button class="sky-back" id="back" type="button" aria-label="Назад">‹</button>
+  <div class="sky-title"><b>Небо над вами</b><small id="place">Определяем место…</small></div>
+  <button class="sky-mode" id="mode" type="button">Пальцем</button>
+</header>
+<p class="sky-hint" id="hint" aria-live="polite"></p>
+<div class="sky-aim" aria-hidden="true"></div>
+<p class="sky-aim-text" id="aim" aria-live="polite"></p>
+<nav class="sky-bodies" id="bodies" aria-label="Найти планету"></nav>
+<section class="sky-card" id="card" hidden aria-live="polite"></section>
+
+<script>
+(function () {
+  'use strict';
+  /* ===== СПРАВОЧНИКИ ===== */
+  const NAMES = { sun:'Солнце', moon:'Луна', mercury:'Меркурий', venus:'Венера', mars:'Марс', jupiter:'Юпитер', saturn:'Сатурн', uranus:'Уран', neptune:'Нептун', pluto:'Плутон' };
+  const GLYPH = { sun:'☉', moon:'☽', mercury:'☿', venus:'♀', mars:'♂', jupiter:'♃', saturn:'♄', uranus:'♅', neptune:'♆', pluto:'♇' };
+  const SIGNS = ['Овен','Телец','Близнецы','Рак','Лев','Дева','Весы','Скорпион','Стрелец','Козерог','Водолей','Рыбы'];
+  const SIGN_GLYPH = ['♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓'];
+  // зодиакальные созвездия — плюс Змееносец: эклиптика проходит и через него
+  const ZODIAC_CONS = new Set(['Ari','Tau','Gem','Cnc','Leo','Vir','Lib','Sco','Sgr','Cap','Aqr','Psc','Oph']);
+  const POINTS = ['С','СВ','В','ЮВ','Ю','ЮЗ','З','СЗ'];
+  const FE0E = '︎';
+  const D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+  const css = getComputedStyle(document.documentElement);
+  const C = n => css.getPropertyValue(n).trim();
+  const COL = { night: C('--sky-night'), zenith: C('--sky-zenith'), twilight: C('--sky-twilight'), ground: C('--ground'), horizon: C('--horizon'),
+    con: C('--con-line'), conZ: C('--con-zodiac'), conLabel: C('--con-label'), accent: C('--accent'), ecl: C('--ecliptic'), text: C('--text'),
+    dim: C('--text-dim'), muted: C('--muted'), sun: C('--sun'), moon: C('--moon'), planet: C('--planet'), target: C('--target'),
+    stars: [0, 1, 2, 3, 4].map(i => C('--star-' + i)), bg: C('--bg-black') };
+
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* без памяти — без запоминания */ } }
+  };
+  const el = id => document.getElementById(id);
+  const ui = { canvas: el('sky'), place: el('place'), mode: el('mode'), hint: el('hint'), aim: el('aim'), bodies: el('bodies'), card: el('card') };
+  const ctx = ui.canvas.getContext('2d');
+
+  /* ===== СТАТИСТИКА =====
+     Та же очередь, что у экрана дня (astrolab_events): отправит её экран
+     дня при следующем открытии. Выключенная статистика — не пишем. */
+  function track(name, props) {
+    if (store.get('astrolab_stats_off')) return;
+    const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+    const q = store.get('astrolab_events') || [];
+    q.push({ id, name, at: new Date().toISOString(), ...(props ? { props } : {}) });
+    store.set('astrolab_events', q.slice(-500));
+  }
+
+  /* ===== МЕСТО: GPS ===== */
+  const PLACE_KEY = 'astrolab_sky_place';
+  let place = store.get(PLACE_KEY);           // { lat, lon, at, source }
+  function showPlace() {
+    if (!place) { ui.place.textContent = 'Место не определено'; return; }
+    const src = place.source === 'gps' ? '' : place.source === 'birth' ? ' · место рождения' : '';
+    ui.place.textContent = `${Math.abs(place.lat).toFixed(1)}° ${place.lat >= 0 ? 'с.ш.' : 'ю.ш.'}, ${Math.abs(place.lon).toFixed(1)}° ${place.lon >= 0 ? 'в.д.' : 'з.д.'}${src}`;
+  }
+  function locate() {
+    if (!navigator.geolocation) return fallbackPlace();
+    navigator.geolocation.getCurrentPosition(p => {
+      place = { lat: p.coords.latitude, lon: p.coords.longitude, at: Date.now(), source: 'gps' };
+      store.set(PLACE_KEY, place); showPlace(); refreshFrames();
+    }, () => fallbackPlace(), { enableHighAccuracy: false, timeout: 15000, maximumAge: 6 * 3600 * 1000 });
+  }
+  // GPS не дал места: прошлое известное, иначе — место рождения (с пометкой).
+  // Ошибка в сотню километров на небе почти не видна: это доли градуса.
+  function fallbackPlace() {
+    if (place) { showPlace(); return; }
+    const prof = store.get('astrolab_day_profile');
+    if (prof && prof.place) { place = { lat: prof.place.lat, lon: prof.place.lon, at: Date.now(), source: 'birth' }; showPlace(); refreshFrames();
+      say('Не удалось определить место по GPS — небо показано для места рождения. Разрешите геолокацию, чтобы видеть своё.'); }
+    else { place = { lat: 55.75, lon: 37.62, at: Date.now(), source: 'default' }; showPlace(); refreshFrames(); say('Место не определено — небо показано для Москвы.'); }
+  }
+
+  /* ===== ДАННЫЕ НЕБА ===== */
+  let SKY = null;                 // sky.json
+  let planets = [];               // [{ id, ra, dec, lon, … }] — из движка
+  let jdPlanets = 0;
+  const engine = (() => { try { return new Worker('engine.js', { type: 'module' }); } catch (e) { return null; } })();
+  if (engine) engine.onmessage = e => { if (e.data.type === 'sky') { planets = e.data.bodies; jdPlanets = e.data.jd; refreshFrames(); renderChips(); } };
+  const askPlanets = () => engine && engine.postMessage({ type: 'sky', ms: Date.now() });
+
+  /* ===== АСТРОНОМИЯ: ЭКВАТОР → ГОРИЗОНТ =====
+     Вектор на небе в системе «восток, север, зенит» (ENU). Через часовой
+     угол, без промежуточных высоты и азимута: так дешевле, а прожектор
+     ниже всё равно работает с векторами. */
+  const jdNow = () => Date.now() / 86400000 + 2440587.5;
+  function lstDeg(jd, lon) {
+    const T = (jd - 2451545) / 36525;
+    const gmst = 280.46061837 + 360.98564736629 * (jd - 2451545) + 0.000387933 * T * T - T * T * T / 38710000;
+    return (((gmst + lon) % 360) + 360) % 360;
+  }
+  function enu(raDeg, decDeg, lst, sinPhi, cosPhi, out, i) {
+    const H = (lst - raDeg) * D2R, d = decDeg * D2R, cd = Math.cos(d), sd = Math.sin(d), cH = Math.cos(H);
+    out[i] = -cd * Math.sin(H);
+    out[i + 1] = cosPhi * sd - sinPhi * cd * cH;
+    out[i + 2] = sinPhi * sd + cosPhi * cd * cH;
+  }
+  // обратно: ENU → RA/Dec — «что перед вами» и в каком созвездии центр экрана
+  function raDecOf(E, N, U, lst, sinPhi, cosPhi) {
+    const dec = Math.asin(Math.max(-1, Math.min(1, sinPhi * U + cosPhi * N))) * R2D;
+    const H = Math.atan2(-E, cosPhi * U - sinPhi * N) * R2D;
+    return [(((lst - H) % 360) + 360) % 360, dec];
+  }
+  // эклиптика J2000 → экватор J2000
+  const EPS = 23.4392911 * D2R;
+  const eclToEq = lam => { const l = lam * D2R; return [((Math.atan2(Math.sin(l) * Math.cos(EPS), Math.cos(l)) * R2D) + 360) % 360, Math.asin(Math.sin(l) * Math.sin(EPS)) * R2D]; };
+  // прецессия от J2000 до сегодня, °: знаки — от точки равноденствия ДАТЫ
+  const precession = jd => (jd - 2451545) / 365.25 * 50.29 / 3600;
+
+  // точка внутри границы созвездия (кольцо RA/Dec). Кольца пересекают
+  // 0°/360°, поэтому RA разворачиваются относительно первой вершины.
+  function inside(ra, dec, ring) {
+    const n = ring.length / 2, xs = new Array(n);
+    let base = ring[0];
+    for (let i = 0; i < n; i++) { let x = ring[2 * i]; while (x - base > 180) x -= 360; while (base - x > 180) x += 360; xs[i] = x; base = x; }
+    for (const shift of [0, 360, -360]) {
+      const px = ra + shift; let c = false;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const yi = ring[2 * i + 1], yj = ring[2 * j + 1];
+        if ((yi > dec) !== (yj > dec) && px < (xs[j] - xs[i]) * (dec - yi) / (yj - yi) + xs[i]) c = !c;
+      }
+      if (c) return true;
+    }
+    return false;
+  }
+  const constellationAt = (ra, dec) => SKY && SKY.cons.find(c => c.bounds.some(r => inside(ra, dec, r)));
+
+  /* ===== КАДР НЕБА ===== пересчитывается раз в несколько секунд:
+     небо поворачивается на 0,25° в минуту — каждому кадру это не нужно */
+  let frame = null;
+  function refreshFrames() {
+    if (!SKY || !place) return;
+    const jd = jdNow(), lst = lstDeg(jd, place.lon), phi = place.lat * D2R, sP = Math.sin(phi), cP = Math.cos(phi);
+    const stars = new Float32Array(SKY.stars.length * 3);
+    SKY.stars.forEach((s, i) => enu(s[0], s[1], lst, sP, cP, stars, i * 3));
+    const lines = SKY.cons.map(c => c.lines.map(l => { const a = new Float32Array(l.length / 2 * 3); for (let i = 0; i < l.length / 2; i++) enu(l[2 * i], l[2 * i + 1], lst, sP, cP, a, i * 3); return a; }));
+    const labels = new Float32Array(SKY.cons.length * 3);
+    SKY.cons.forEach((c, i) => enu(c.label[0], c.label[1], lst, sP, cP, labels, i * 3));
+    const ecl = new Float32Array(181 * 3);
+    for (let k = 0; k <= 180; k++) { const [r, d] = eclToEq(k * 2); enu(r, d, lst, sP, cP, ecl, k * 3); }
+    const p = precession(jd), signs = new Float32Array(24 * 3);
+    for (let k = 0; k < 12; k++) {
+      let [r, d] = eclToEq(30 * k - p); enu(r, d, lst, sP, cP, signs, k * 6);           // граница знака
+      [r, d] = eclToEq(30 * k + 15 - p); enu(r, d, lst, sP, cP, signs, k * 6 + 3);      // середина — для значка
+    }
+    const bodies = planets.map(b => { const v = new Float32Array(3); enu(b.ra, b.dec, lst, sP, cP, v, 0); return { ...b, v }; });
+    frame = { jd, lst, sP, cP, stars, lines, labels, ecl, signs, bodies };
+  }
+
+  /* ===== ОРИЕНТАЦИЯ ТЕЛЕФОНА =====
+     R — матрица «телефон → земля» (столбцы — оси телефона в ENU), как
+     в спецификации W3C DeviceOrientation: z-x'-y'' по alpha, beta, gamma.
+     Камера (задняя сторона) смотрит вдоль −z телефона. */
+  let mode = 'drag';               // 'compass' | 'tilt' (наклон без компаса) | 'drag'
+  let R = null, Rs = null;         // сырая и сглаженная
+  let azOffset = store.get('astrolab_sky_az_offset') || 0;   // поправка компаса, °
+  let viewAz = 180, viewAlt = 30;  // для режима «пальцем»
+
+  function matrixFromEuler(a, b, g) {
+    a *= D2R; b *= D2R; g *= D2R;
+    const cA = Math.cos(a), sA = Math.sin(a), cB = Math.cos(b), sB = Math.sin(b), cG = Math.cos(g), sG = Math.sin(g);
+    return [cA * cG - sA * sB * sG, -cB * sA, cA * sG + cG * sA * sB,
+            cG * sA + cA * sB * sG, cA * cB, sA * sG - cA * cG * sB,
+            -cB * sG, sB, cB * cG];
+  }
+  function matrixFromView(az, alt) {
+    const a = az * D2R, h = alt * D2R;
+    const v = [Math.cos(h) * Math.sin(a), Math.cos(h) * Math.cos(a), Math.sin(h)];
+    const z = [-v[0], -v[1], -v[2]];
+    let y = [-v[2] * v[0], -v[2] * v[1], 1 - v[2] * v[2]];
+    const ny = Math.hypot(y[0], y[1], y[2]) || 1; y = y.map(t => t / ny);
+    const x = [y[1] * z[2] - y[2] * z[1], y[2] * z[0] - y[0] * z[2], y[0] * z[1] - y[1] * z[0]];
+    return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+  }
+  // сглаживание: смешиваем матрицы и возвращаем столбцам ортонормальность —
+  // по углам Эйлера так нельзя: у вертикально поднятого телефона alpha
+  // и gamma скачут (вырождение при beta = 90°), а матрица непрерывна
+  function smooth(prev, next, k) {
+    if (!prev) return next.slice();
+    const m = prev.map((p, i) => p + (next[i] - p) * k);
+    const col = j => [m[j], m[3 + j], m[6 + j]];
+    let x = col(0), y = col(1);
+    const nx = Math.hypot(...x); x = x.map(t => t / nx);
+    const d = x[0] * y[0] + x[1] * y[1] + x[2] * y[2]; y = y.map((t, i) => t - d * x[i]);
+    const ny = Math.hypot(...y); y = y.map(t => t / ny);
+    const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+    return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+  }
+
+  let gotAbsolute = false, gotRelative = false;
+  window.addEventListener('deviceorientationabsolute', e => {
+    if (e.alpha == null) return;
+    gotAbsolute = true;
+    if (mode !== 'drag') { mode = 'compass'; R = matrixFromEuler(e.alpha, e.beta, e.gamma); }
+  }, true);
+  window.addEventListener('deviceorientation', e => {
+    if (e.alpha == null || gotAbsolute) return;
+    gotRelative = true;
+    // absolute: true — тот же компас по старому имени события
+    if (mode !== 'drag') { mode = e.absolute ? 'compass' : 'tilt'; R = matrixFromEuler(e.alpha, e.beta, e.gamma); }
+  }, true);
+
+  // через полторы секунды решаем, что есть у телефона
+  function chooseMode(initial) {
+    if (gotAbsolute || gotRelative) {
+      mode = gotAbsolute ? 'compass' : 'tilt';
+      say(mode === 'compass'
+        ? 'Наведите телефон на небо. Если картинка сдвинута — проведите пальцем влево или вправо, чтобы подправить компас. Уплывает — поводите телефоном восьмёркой.'
+        : 'Компас недоступен: проведите пальцем влево или вправо, чтобы развернуть небо по сторонам света.', 9000);
+    } else {
+      mode = 'drag';
+      say('Датчиков нет — водите небо пальцем.', 6000);
+    }
+    ui.mode.textContent = mode === 'drag' ? 'Датчики' : 'Пальцем';
+    ui.mode.hidden = !(gotAbsolute || gotRelative);
+    if (initial) track('sky.open', { mode: mode === 'drag' ? 'drag' : 'compass' });
+  }
+  ui.mode.addEventListener('click', () => {
+    if (mode === 'drag') { mode = gotAbsolute ? 'compass' : 'tilt'; Rs = null; }
+    else { mode = 'drag'; const v = viewDir(); viewAz = v.az; viewAlt = v.alt; }
+    ui.mode.textContent = mode === 'drag' ? 'Датчики' : 'Пальцем';
+  });
+
+  /* ===== ЖЕСТЫ =====
+     С датчиками горизонтальный свайп поправляет компас (запоминается),
+     без них — водит небо. Короткое касание — выбрать планету. */
+  let drag = null;
+  ui.canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t: Date.now() }; ui.canvas.setPointerCapture(e.pointerId); });
+  ui.canvas.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, degPerPx = fovDeg() / ui.canvas.clientHeight;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (mode === 'drag') { viewAz = (viewAz - dx * degPerPx + 360) % 360; viewAlt = Math.max(-80, Math.min(85, viewAlt + dy * degPerPx)); }
+    else { azOffset = ((azOffset + dx * degPerPx) % 360 + 360) % 360; }
+  });
+  ui.canvas.addEventListener('pointerup', e => {
+    if (!drag) return;
+    const moved = Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0);
+    if (moved < 8 && Date.now() - drag.t < 500) pick(e.clientX, e.clientY);
+    if (mode !== 'drag') store.set('astrolab_sky_az_offset', azOffset);
+    drag = null;
+  });
+
+  /* ===== ПРОЕКЦИЯ ===== */
+  let W = 0, H = 0, dpr = 1, f = 1;
+  const fovDeg = () => 62;                       // по вертикали — примерно как у камеры телефона
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = ui.canvas.clientWidth; H = ui.canvas.clientHeight;
+    ui.canvas.width = W * dpr; ui.canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    f = (H / 2) / Math.tan(fovDeg() / 2 * D2R);
+  }
+  window.addEventListener('resize', resize);
+
+  let M = null;                                  // текущая матрица кадра
+  const cosOff = () => Math.cos(azOffset * D2R), sinOff = () => Math.sin(azOffset * D2R);
+  let cO = 1, sO = 0;
+  // ENU объекта → экран. Поправка компаса — поворот неба вокруг зенита.
+  function project(E, N, U, out) {
+    const e = cO * E + sO * N, n = -sO * E + cO * N;
+    const dx = M[0] * e + M[3] * n + M[6] * U, dy = M[1] * e + M[4] * n + M[7] * U, dz = M[2] * e + M[5] * n + M[8] * U;
+    out.front = dz < -0.02;
+    out.dx = dx; out.dy = dy; out.dz = dz;
+    if (!out.front) return out;
+    out.x = W / 2 + f * dx / -dz; out.y = H / 2 - f * dy / -dz;
+    return out;
+  }
+  // куда смотрит центр экрана (для «Перед вами» и смены режима)
+  function viewDir() {
+    if (!M) return { az: viewAz, alt: viewAlt, E: 0, N: 1, U: 0 };
+    let E = -M[2], N = -M[5], U = -M[8];
+    const e = cO * E - sO * N, n = sO * E + cO * N; E = e; N = n;     // обратная поправка компаса
+    return { az: ((Math.atan2(E, N) * R2D) + 360) % 360, alt: Math.asin(Math.max(-1, Math.min(1, U))) * R2D, E, N, U };
+  }
+
+  /* ===== РИСОВАНИЕ ===== */
+  const P = {}, Q = {};
+  function sunAlt() { const s = frame && frame.bodies.find(b => b.id === 'sun'); return s ? Math.asin(s.v[2]) * R2D : -90; }
+
+  function draw() {
+    requestAnimationFrame(draw);
+    if (document.hidden || !frame) return;
+    // матрица кадра: датчики (сглаженные) или «пальцем»
+    if (mode === 'drag' || !R) M = matrixFromView(viewAz, viewAlt);
+    else { Rs = smooth(Rs, R, 0.22); M = Rs; }
+    cO = cosOff(); sO = sinOff();
+
+    // фон: ночь, сумерки или день — по высоте Солнца
+    const sa = sunAlt();
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, sa > -6 ? COL.twilight : COL.zenith); g.addColorStop(1, COL.night);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    drawConstellations();
+    drawEcliptic();
+    drawStars(sa);
+    drawGround();
+    drawBodies();
+    drawTarget();
+    updateAim();
+  }
+
+  function drawStars(sa) {
+    const s = frame.stars, mags = SKY.stars, day = sa > -6 ? 0.35 : 1;
+    for (let i = 0; i < mags.length; i++) {
+      project(s[i * 3], s[i * 3 + 1], s[i * 3 + 2], P);
+      if (!P.front || P.x < -10 || P.x > W + 10 || P.y < -10 || P.y > H + 10) continue;
+      const m = mags[i][2], r = Math.max(0.55, (6 - m) * 0.62);
+      ctx.globalAlpha = Math.min(1, 0.25 + (6 - m) / 5) * day * (s[i * 3 + 2] < 0 ? 0.3 : 1);
+      ctx.fillStyle = COL.stars[mags[i][3]];
+      ctx.beginPath(); ctx.arc(P.x, P.y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // имена ярких звёзд
+    ctx.font = '11px ' + C('--font'); ctx.fillStyle = COL.muted; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (const [i, name] of SKY.names) {
+      project(s[i * 3], s[i * 3 + 1], s[i * 3 + 2], P);
+      if (P.front && P.x > 0 && P.x < W && P.y > 0 && P.y < H && s[i * 3 + 2] > -0.05) ctx.fillText(name, P.x + 6, P.y);
+    }
+  }
+
+  function drawConstellations() {
+    ctx.lineWidth = 1;
+    SKY.cons.forEach((c, ci) => {
+      ctx.strokeStyle = ZODIAC_CONS.has(c.id) ? COL.conZ : COL.con;
+      for (const a of frame.lines[ci]) {
+        ctx.beginPath(); let started = false;
+        for (let k = 0; k < a.length / 3; k++) {
+          project(a[k * 3], a[k * 3 + 1], a[k * 3 + 2], P);
+          if (!P.front) { started = false; continue; }
+          if (started) ctx.lineTo(P.x, P.y); else { ctx.moveTo(P.x, P.y); started = true; }
+        }
+        ctx.stroke();
+      }
+    });
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    SKY.cons.forEach((c, ci) => {
+      const L = frame.labels; project(L[ci * 3], L[ci * 3 + 1], L[ci * 3 + 2], P);
+      if (!P.front || P.x < 0 || P.x > W || P.y < 0 || P.y > H) return;
+      const z = ZODIAC_CONS.has(c.id);
+      ctx.font = (z ? '600 12px ' : '11px ') + C('--font');
+      ctx.fillStyle = z ? COL.accent : COL.conLabel;
+      ctx.fillText(c.ru.toUpperCase(), P.x, P.y);
+    });
+  }
+
+  // эклиптика — путь Солнца; на ней границы и значки знаков зодиака
+  function drawEcliptic() {
+    const a = frame.ecl;
+    ctx.strokeStyle = COL.ecl; ctx.lineWidth = 1.2; ctx.setLineDash([6, 5]);
+    ctx.beginPath(); let started = false;
+    for (let k = 0; k <= 180; k++) {
+      project(a[k * 3], a[k * 3 + 1], a[k * 3 + 2], P);
+      if (!P.front) { started = false; continue; }
+      if (started) ctx.lineTo(P.x, P.y); else { ctx.moveTo(P.x, P.y); started = true; }
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+    const s = frame.signs;
+    for (let k = 0; k < 12; k++) {
+      project(s[k * 6], s[k * 6 + 1], s[k * 6 + 2], P);
+      if (P.front) { ctx.fillStyle = COL.ecl; ctx.fillRect(P.x - 1, P.y - 7, 2, 14); }
+      project(s[k * 6 + 3], s[k * 6 + 4], s[k * 6 + 5], P);
+      if (P.front && P.x > -20 && P.x < W + 20 && P.y > -20 && P.y < H + 20) {
+        ctx.fillStyle = COL.bg; ctx.beginPath(); ctx.arc(P.x, P.y, 11, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = COL.ecl; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = COL.accent; ctx.font = '14px ' + C('--glyph-font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(SIGN_GLYPH[k] + FE0E, P.x, P.y + 1);
+      }
+    }
+  }
+
+  // Земля: при гномонической проекции горизонт — прямая, земля —
+  // полуплоскость A·x + B·y + C < 0. Режем прямоугольник экрана этой
+  // прямой и заливаем, что ниже.
+  function drawGround() {
+    const u0 = M[6], u1 = M[7], u2 = M[8];       // зенит в осях телефона (строка R)
+    // с поправкой компаса зенит не меняется — поворот вокруг него
+    const A = u0 / f, B = -u1 / f, Cc = -u0 * (W / 2) / f + u1 * (H / 2) / f - u2;
+    const val = (x, y) => A * x + B * y + Cc;
+    const rect = [[0, 0], [W, 0], [W, H], [0, H]], poly = [], cut = [];
+    for (let i = 0; i < 4; i++) {
+      const p = rect[i], q = rect[(i + 1) % 4], vp = val(p[0], p[1]), vq = val(q[0], q[1]);
+      if (vp < 0) poly.push(p);
+      if ((vp < 0) !== (vq < 0)) { const t = vp / (vp - vq), pt = [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]; poly.push(pt); cut.push(pt); }
+    }
+    if (poly.length > 2) {
+      ctx.fillStyle = COL.ground; ctx.beginPath(); ctx.moveTo(poly[0][0], poly[0][1]);
+      for (const p of poly.slice(1)) ctx.lineTo(p[0], p[1]);
+      ctx.closePath(); ctx.fill();
+    }
+    if (cut.length === 2) {
+      ctx.strokeStyle = COL.horizon; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cut[0][0], cut[0][1]); ctx.lineTo(cut[1][0], cut[1][1]); ctx.stroke();
+    }
+    // стороны света на горизонте
+    ctx.font = '600 13px ' + C('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    POINTS.forEach((name, k) => {
+      const az = k * 45 * D2R; project(Math.sin(az), Math.cos(az), 0, P);
+      if (!P.front || P.x < 0 || P.x > W || P.y < 0 || P.y > H) return;
+      ctx.fillStyle = k === 0 ? COL.accent : COL.horizon; ctx.fillText(name, P.x, P.y - 4);
+    });
+  }
+
+  let selected = null;
+  function drawBodies() {
+    // дальние сначала: Луна и Солнце поверх планет
+    const list = [...frame.bodies].sort((a, b) => b.dist - a.dist);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const b of list) {
+      project(b.v[0], b.v[1], b.v[2], P);
+      b.screen = P.front ? { x: P.x, y: P.y } : null;
+      if (!P.front) continue;
+      const below = b.v[2] < 0, big = b.id === 'sun' || b.id === 'moon', r = big ? 14 : 11;
+      ctx.globalAlpha = below ? 0.45 : 1;
+      if (b.id === 'sun') { const glow = ctx.createRadialGradient(P.x, P.y, 2, P.x, P.y, 36); glow.addColorStop(0, COL.sun); glow.addColorStop(1, 'transparent'); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(P.x, P.y, 36, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = COL.bg; ctx.beginPath(); ctx.arc(P.x, P.y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = b.id === 'sun' ? COL.sun : b.id === 'moon' ? COL.moon : COL.planet; ctx.lineWidth = selected === b.id ? 2.5 : 1.3; ctx.stroke();
+      ctx.fillStyle = b.id === 'sun' ? COL.sun : b.id === 'moon' ? COL.moon : COL.planet;
+      ctx.font = (big ? 17 : 14) + 'px ' + C('--glyph-font'); ctx.fillText(GLYPH[b.id] + FE0E, P.x, P.y + 1);
+      ctx.font = '11px ' + C('--font'); ctx.fillStyle = COL.dim; ctx.fillText(NAMES[b.id], P.x, P.y + r + 9);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // выбранная планета за краем экрана — стрелка у края в её сторону
+  function drawTarget() {
+    if (!selected) return;
+    const b = frame.bodies.find(x => x.id === selected); if (!b) return;
+    project(b.v[0], b.v[1], b.v[2], Q);
+    if (Q.front && Q.x > 20 && Q.x < W - 20 && Q.y > 70 && Q.y < H - 70) return;
+    let ang = Math.atan2(-Q.dy, Q.dx);
+    if (!Q.front && Math.hypot(Q.dx, Q.dy) < 1e-3) ang = Math.PI / 2;
+    const cx = W / 2, cy = H / 2, rx = W / 2 - 34, ry = H / 2 - 96;
+    const t = Math.min(Math.abs(rx / Math.cos(ang) || 1e9), Math.abs(ry / Math.sin(ang) || 1e9));
+    const x = cx + Math.cos(ang) * t, y = cy + Math.sin(ang) * t;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+    ctx.fillStyle = COL.target; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-4, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.font = '600 12px ' + C('--font'); ctx.fillStyle = COL.target; ctx.textAlign = 'center';
+    ctx.fillText(NAMES[b.id], x - Math.cos(ang) * 26, y - Math.sin(ang) * 26);
+  }
+
+  /* ===== «ПЕРЕД ВАМИ» ===== */
+  let lastAim = 0;
+  function updateAim() {
+    if (Date.now() - lastAim < 300) return; lastAim = Date.now();
+    const v = viewDir();
+    let near = null, best = 6;
+    for (const b of frame.bodies) { const d = Math.acos(Math.max(-1, Math.min(1, b.v[0] * v.E + b.v[1] * v.N + b.v[2] * v.U))) * R2D; if (d < best) { best = d; near = NAMES[b.id]; } }
+    const [ra, dec] = raDecOf(v.E, v.N, v.U, frame.lst, frame.sP, frame.cP);
+    const con = constellationAt(ra, dec);
+    const side = POINTS[Math.round(v.az / 45) % 8];
+    const parts = [];
+    if (near) parts.push(near);
+    if (con) parts.push('созвездие ' + con.ru);
+    ui.aim.textContent = (parts.length ? parts.join(' · ') + ' — ' : '') + `${side}, ${Math.round(v.az)}°, высота ${Math.round(v.alt)}°` + (v.alt < 0 ? ' (под горизонтом)' : '');
+  }
+
+  /* ===== ПЛАНЕТЫ: СПИСОК И КАРТОЧКА ===== */
+  function renderChips() {
+    if (!frame) return;
+    ui.bodies.innerHTML = frame.bodies.map(b => `<button type="button" class="sky-chip${selected === b.id ? ' on' : ''}${b.v[2] < 0 ? ' below' : ''}" data-id="${b.id}"><i>${GLYPH[b.id]}${FE0E}</i>${NAMES[b.id]}</button>`).join('');
+  }
+  ui.bodies.addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) select(b.dataset.id); });
+
+  function pick(x, y) {
+    let best = null, d0 = 32;
+    for (const b of frame ? frame.bodies : []) { if (!b.screen) continue; const d = Math.hypot(b.screen.x - x, b.screen.y - y); if (d < d0) { d0 = d; best = b.id; } }
+    if (best) select(best); else closeCard();
+  }
+  function closeCard() { selected = null; ui.card.hidden = true; renderChips(); }
+
+  // натальный дом — по куспидам из сохранённого расчёта дня
+  function houseOf(lon, cusps) {
+    for (let i = 0; i < 12; i++) {
+      const a = cusps[i], b = cusps[(i + 1) % 12], span = ((b - a) % 360 + 360) % 360, d = ((lon - a) % 360 + 360) % 360;
+      if (d < span) return i + 1;
+    }
+    return null;
+  }
+  function select(id) {
+    selected = id; renderChips();
+    const b = frame.bodies.find(x => x.id === id); if (!b) return;
+    track('sky.body', { body: id });
+    const sign = Math.floor(((b.lon % 360) + 360) % 360 / 30), deg = Math.floor(((b.lon % 30) + 30) % 30);
+    const con = constellationAt(b.ra, b.dec);
+    const alt = Math.asin(b.v[2]) * R2D, az = ((Math.atan2(b.v[0], b.v[1]) * R2D) + 360) % 360;
+    const conName = con ? con.ru : '—';
+    const same = con && con.ru === SIGNS[sign];
+    const cache = store.get('astrolab_day_forecast'), fc = cache && cache.data;
+    const cusps = fc && fc.natal && fc.natal.houses ? fc.natal.houses.map(h => h.longitude) : null;
+    const house = cusps ? houseOf(b.lon, cusps) : null;
+    const today = fc ? [...new Set(fc.days[fc.days.length - 1].spheres.flatMap(s => s.drivers).filter(d => d.transit === id).map(d => d.text))].slice(0, 3) : [];
+    ui.card.innerHTML = `
+      <div class="sky-card-head"><i>${GLYPH[id]}${FE0E}</i><b>${NAMES[id]}</b><button class="sky-card-x" type="button" aria-label="Закрыть">×</button></div>
+      <p class="sky-row">Знак: <b>${SIGNS[sign]}</b>, ${deg}° · на небе: <b>созвездие ${conName}</b></p>
+      ${same ? '' : `<p class="sky-note">Знак и созвездие разные — это не ошибка. Знаки отсчитываются от точки весеннего равноденствия, а она из-за прецессии ползёт по небу на 1° за 72 года; со времён, когда знаки совпадали с созвездиями, она ушла почти на целое созвездие.</p>`}
+      <p class="sky-row">${alt >= 0 ? `Высота <b>${Math.round(alt)}°</b>, ${POINTS[Math.round(az / 45) % 8]} (${Math.round(az)}°)` : `<b>Под горизонтом</b> — сейчас не видно`}${house ? ` · в вашей карте — <b>${house}-й дом</b>` : ''}</p>
+      ${today.length ? `<p class="sky-row">Сегодня:</p>${today.map(t => `<p class="sky-today">${t}</p>`).join('')}` : ''}`;
+    ui.card.hidden = false;
+    ui.card.querySelector('.sky-card-x').addEventListener('click', closeCard);
+  }
+
+  /* ===== ПОДСКАЗКИ ===== */
+  let hintTimer = 0;
+  function say(text, ms) {
+    ui.hint.textContent = text; ui.hint.classList.remove('gone');
+    clearTimeout(hintTimer); hintTimer = setTimeout(() => ui.hint.classList.add('gone'), ms || 7000);
+  }
+  ui.hint.addEventListener('click', () => ui.hint.classList.add('gone'));
+
+  /* ===== ЗАПУСК ===== */
+  el('back').addEventListener('click', () => { if (history.length > 1) history.back(); else location.href = 'index.html'; });
+  resize(); showPlace();
+  fetch('sky.json').then(r => r.json()).then(j => { SKY = j; refreshFrames(); renderChips(); })
+    .catch(() => say('Не удалось загрузить карту неба.', 10000));
+  locate(); askPlanets();
+  setInterval(askPlanets, 60000);
+  setInterval(refreshFrames, 5000);
+  setTimeout(() => chooseMode(true), 1500);
+  if (!engine) say('Планеты считаются только в приложении.', 8000);
+  requestAnimationFrame(draw);
+  // для проверки в браузере без датчиков: ?az=…&alt=…
+  const q = new URLSearchParams(location.search);
+  if (q.has('az')) { viewAz = +q.get('az'); viewAlt = +(q.get('alt') || 30); }
+})();
+</script>
+</body>
+</html>

@@ -201,6 +201,8 @@
     let data = JSON.parse(document.getElementById('chart-data').textContent);
     // встраивание в экран дня: только круг, в центре — фраза дня
     const EMBED = new URLSearchParams(location.search).has('embed');
+    // quick: вернулись с другого экрана приложения — сборку уже видели, сразу итог
+    const QUICK = new URLSearchParams(location.search).has('quick');
     if(EMBED){
       document.body.classList.add('is-embed');
       // экран дня поднимает iframe под свою шапку, чтобы слои, падающие
@@ -696,7 +698,7 @@
           // при смене дня жетоны едут от прежних мест, а не появляются сразу
           const from = skyShown ? visualShown() : null;
           renderWheel(); applyFilter(); clearSel();
-          if(!skyShown){ skyShown=true; playIntro(); }
+          if(!skyShown){ skyShown=true; if(!QUICK) playIntro(); }
           else if(from) moveBodies(from, lastShown);
         }
         if(m.type==='highlight') highlightContact(m.transit||null, m.natal||null);
