@@ -2,6 +2,7 @@
 # ===== СБОРКА ПРИЛОЖЕНИЯ ДЛЯ ANDROID =====
 #
 #   ./build.sh            → dist/astrolab-day-<версия>.apk
+#   ./build.sh www        → только www/ — проверить страницы в браузере без Gradle
 #
 # 1. www/: экран дня (index.html) и колесо без вшитых данных — так
 #    страница понимает, что она приложение, и считает сама; движок
@@ -35,6 +36,7 @@ JS
 (cd .. && npx esbuild src/app-engine.ts --bundle --format=esm --platform=browser --target=chrome90 \
    --external:./sweph.mjs --log-level=warning --outfile=app/www/engine.js)
 cp ../wasm/sweph.mjs cities.json www/
+[ "${1:-}" = www ] && { echo "www/ собран, версия $VERSION"; exit 0; }
 
 npx cap sync android >/dev/null
 (cd android && ./gradlew -q assembleRelease -PappVersionCode="$CODE" -PappVersionName="$VERSION")

@@ -370,6 +370,28 @@
   .about h3 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
   .about p { font-size: 13.5px; color: var(--text-dim); }
   .update-status:empty { display: none; }
+  .chk { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--text-dim); cursor: pointer; user-select: none; min-height: 44px; }
+  .chk input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .stats-note { font-size: 12.5px !important; color: var(--muted) !important; margin-top: -8px; }
+
+  /* ===== ОБЪЯВЛЕНИЕ =====
+     Карточка в стиле модалок кабинета: латунная кромка, подпись мелкими
+     заглавными, золотая кнопка. z-index выше iframe колеса — тот поднят
+     под шапку и прозрачным краем лежит и здесь. */
+  .notice {
+    position: relative; z-index: 2; display: flex; flex-direction: column; gap: 6px;
+    background: var(--card-solid); border: 1px solid var(--modal-border); border-radius: 16px; padding: 14px 16px;
+    animation: pop .22s ease;
+  }
+  .notice[hidden] { display: none; }
+  .notice-kicker { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+  .notice-title { font-size: 16px; font-weight: 700; }
+  .notice-body { font-size: 14px; color: var(--text-dim); white-space: pre-line; }
+  .notice-actions { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  .notice-link { width: auto; text-decoration: none; min-height: 40px; padding: 9px 16px; }
+  .notice-link[hidden] { display: none; }
+  .notice-close { border: 0; background: none; color: var(--muted); font: inherit; font-size: 14px; cursor: pointer; min-height: 40px; padding: 0 6px; }
+  .notice-close:hover { color: var(--text); }
   .update-status a { color: var(--accent); }
   .app-credits { font-size: 12px !important; color: var(--muted) !important; }
   .app-credits a { color: inherit; }
@@ -492,6 +514,18 @@
 </svg>
 
 <main class="screen">
+  <!-- ===== ОБЪЯВЛЕНИЕ ===== только в приложении: «вышла версия», вебинар,
+       новая функция. Лежит выше iframe колеса (z-index), иначе прозрачный
+       край поднятого колеса перехватывал бы нажатия на кнопки. -->
+  <aside class="notice" id="notice" hidden aria-live="polite">
+    <div class="notice-kicker" id="notice-kicker">Объявление</div>
+    <b class="notice-title" id="notice-title"></b>
+    <p class="notice-body" id="notice-body"></p>
+    <div class="notice-actions">
+      <a class="btn-primary notice-link" id="notice-link" href="#" hidden></a>
+      <button class="notice-close" id="notice-close" type="button">Скрыть</button>
+    </div>
+  </aside>
   <!-- ===== ШАПКА ДНЯ ===== -->
   <header class="day-head">
     <button class="nav-arrow" id="prev-day" aria-label="Предыдущий день">‹</button>
@@ -561,7 +595,7 @@
       </div>
       <div class="modal-foot">
         <button class="btn-primary" id="f-submit" type="submit">Рассчитать</button>
-        <p class="app-note">Данные хранятся только в этом телефоне и никуда не отправляются.</p>
+        <p class="app-note">Данные рождения хранятся только в этом телефоне и никуда не отправляются.</p>
       </div>
     </form>
     <div class="about">
@@ -569,6 +603,8 @@
       <p>Версия <span id="app-version"></span></p>
       <button class="btn-outline" id="check-update" type="button">Проверить обновление</button>
       <p class="update-status" id="update-status" aria-live="polite"></p>
+      <label class="chk"><input type="checkbox" id="stats-on"> Отправлять обезличенную статистику</label>
+      <p class="stats-note">Какие экраны и сферы открываются и как часто — без данных рождения и без имени. Помогает понять, что в приложении улучшать.</p>
       <p class="app-credits">Расчёт — Swiss Ephemeris (AGPL). Города — GeoNames (CC BY 4.0).
         Исходный код открыт: <a href="https://github.com/AstroLab-you/astrolab-day">github.com/AstroLab-you/astrolab-day</a></p>
     </div>
@@ -850,11 +886,13 @@
     el.spheres.querySelectorAll('.driver.is-hl').forEach(x => x !== li && x.classList.remove('is-hl'));
     pinned = li.classList.toggle('is-hl') ? li : null;
     highlight(pinned);
+    if (pinned) track('driver.tap', { sphere: li.closest('.sphere-detail').id.slice(3) });
   });
 
   function toggleSphere(id) {
     pinned = null; highlight(null);
     openId = openId === id ? null : id;
+    if (openId) track('sphere.open', { sphere: openId });
     el.spheres.querySelectorAll('.sphere').forEach(w => {
       const isOpen = w.querySelector('.sphere-detail').id === 'sp-' + openId;
       w.classList.toggle('open', isOpen);
@@ -863,11 +901,13 @@
   }
 
   // ===== СОБЫТИЯ =====
+  // offset дня для статистики: 0 — сегодня, -1 — вчера…
+  const dayOffset = () => current - (DATA.days.length - 1);
   el.prev.addEventListener('click', () => {
-    if (DATA && current > 0) { current--; render(); }
+    if (DATA && current > 0) { current--; render(); track('day.switch', { via: 'arrow', offset: dayOffset() }); }
   });
   el.next.addEventListener('click', () => {
-    if (DATA && current < DATA.days.length - 1) { current++; render(); }
+    if (DATA && current < DATA.days.length - 1) { current++; render(); track('day.switch', { via: 'arrow', offset: dayOffset() }); }
   });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !el.settings.hidden && profile) closeSettings();
@@ -884,6 +924,7 @@
     const next = current + dir;
     if (next < 0 || next > DATA.days.length - 1) return;
     current = next; render(); slideIn(dir);
+    track('day.switch', { via: 'swipe', offset: dayOffset() });
   }
   function slideIn(dir) {
     if (REDUCED) return;
@@ -1002,6 +1043,7 @@
   // ===== ПАНЕЛЬ ДАННЫХ РОЖДЕНИЯ =====
   let lastFocus = null;
   function openSettings() {
+    track('profile.open');
     lastFocus = document.activeElement;
     el.settings.hidden = false; document.body.classList.add('settings-open');
     el.settingsClose.hidden = !profile;   // первый запуск: без данных закрывать некуда
@@ -1093,6 +1135,7 @@
     if (!chosen) { el.fError.textContent = 'Выберите место из списка: начните вводить название.'; el.fPlace.focus(); return; }
     profile = { date, time, place: chosen };   // date — ISO
     store.set(PROFILE_KEY, profile);
+    track('profile.saved');   // сами данные не уходят: у события нет полей для них
     // новый день считается с нуля: смотреть его надо с шапки и колеса
     updateCard(); closeSettings(true); compute();
   });
@@ -1110,23 +1153,141 @@
     if (!silent) { el.updateStatus.textContent = 'Проверяю…'; el.checkUpdate.disabled = true; }
     try {
       const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
-      if (r.status === 404) { if (!silent) el.updateStatus.textContent = 'Опубликованных версий пока нет.'; return; }
+      if (r.status === 404) { if (!silent) { el.updateStatus.textContent = 'Опубликованных версий пока нет.'; track('update.check', { result: 'none' }); } return; }
       if (!r.ok) throw new Error(r.status);
       const rel = await r.json(), latest = String(rel.tag_name || '').replace(/^v/, '');
       const apk = (rel.assets || []).find(a => a.name.endsWith('.apk'));
       if (apk && newer(latest, APP_VERSION)) {
         el.updateStatus.innerHTML = `Доступна версия ${latest}. <a href="${apk.browser_download_url}">Скачать</a> — когда файл загрузится, откройте его и нажмите «Обновить».`;
+        el.updateStatus.querySelector('a').addEventListener('click', () => { track('update.download', { to: latest }); flush(true); });
         if (!el.wheelCard.querySelector('.wheel-update'))
           el.wheelCard.querySelector('.wheel-text').insertAdjacentHTML('beforeend', `<span class="wheel-update">Доступно обновление ${latest}</span>`);
-      } else if (!silent) el.updateStatus.textContent = `У вас последняя версия.`;
+        // и карточкой сверху — её можно скрыть, тогда до следующей версии не всплывёт
+        offerNotice({ key: 'v' + latest, kicker: 'Новая версия', title: `Вышла версия ${latest}`,
+          body: 'Скачайте и откройте файл — приложение обновится, ваши данные сохранятся.',
+          linkUrl: apk.browser_download_url, linkLabel: 'Скачать', onOpen: () => track('update.download', { to: latest }) });
+        if (!silent) track('update.check', { result: 'available' });
+      } else if (!silent) { el.updateStatus.textContent = `У вас последняя версия.`; track('update.check', { result: 'latest' }); }
     } catch (e) {
-      if (!silent) el.updateStatus.textContent = 'Нет связи с GitHub. Проверьте интернет и попробуйте ещё раз.';
+      if (!silent) { el.updateStatus.textContent = 'Нет связи с GitHub. Проверьте интернет и попробуйте ещё раз.'; track('update.check', { result: 'offline' }); }
     } finally { el.checkUpdate.disabled = false; }
   }
   el.checkUpdate.addEventListener('click', () => checkUpdate(false));
 
+  // ===== СТАТИСТИКА ИСПОЛЬЗОВАНИЯ =====
+  // Что открывают и как часто — на наш сервер в Москве (backend, модуль app).
+  // Телефон известен серверу только случайным номером установки; данные
+  // рождения в события не попадают: сервер принимает лишь перечисленные
+  // поля, и для даты или места полей нет. Отключается в «О приложении».
+  // События копятся в памяти телефона и уходят пачкой — при открытии,
+  // через несколько секунд после действий и при сворачивании.
+  const API_BASE = (() => { try { return localStorage.getItem('astrolab_api'); } catch (e) { return null; } })() || 'https://astrolab.you/api';
+  const INSTALL_KEY = 'astrolab_install', QUEUE_KEY = 'astrolab_events', STATS_OFF_KEY = 'astrolab_stats_off';
+  const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
+    : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
+  const statsOn = () => APP && !store.get(STATS_OFF_KEY);
+  let flushTimer = 0, flushing = false;
+  function installId() {
+    let id = store.get(INSTALL_KEY);
+    if (!id) { id = uuid(); store.set(INSTALL_KEY, id); }
+    return id;
+  }
+  function track(name, props) {
+    if (!statsOn()) return;
+    const q = store.get(QUEUE_KEY) || [];
+    q.push({ id: uuid(), name, at: new Date().toISOString(), ...(props ? { props } : {}) });
+    store.set(QUEUE_KEY, q.slice(-500));   // без сети неделями — храним последние 500
+    clearTimeout(flushTimer); flushTimer = setTimeout(flush, 5000);
+  }
+  async function flush(leaving) {
+    if (!statsOn() || flushing) return;
+    const batch = (store.get(QUEUE_KEY) || []).slice(0, 200);
+    if (!batch.length) return;
+    flushing = true;
+    try {
+      // keepalive — чтобы пачка ушла, даже если приложение сворачивают прямо сейчас
+      const r = await fetch(API_BASE + '/app/events', { method: 'POST', keepalive: !!leaving,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ install: installId(), version: APP_VERSION, events: batch }) });
+      // 400 — пачку сервер не примет никогда (старая схема): держать её незачем
+      if (r.ok || r.status === 400) {
+        const sent = new Set(batch.map(e => e.id));
+        store.set(QUEUE_KEY, (store.get(QUEUE_KEY) || []).filter(e => !sent.has(e.id)));
+      }
+    } catch (e) { /* нет сети — пачка подождёт следующего раза */ }
+    finally { flushing = false; }
+  }
+  const statsBox = document.getElementById('stats-on');
+  statsBox.checked = !store.get(STATS_OFF_KEY);
+  statsBox.addEventListener('change', () => {
+    store.set(STATS_OFF_KEY, !statsBox.checked);
+    if (!statsBox.checked) store.set(QUEUE_KEY, []);   // выключил — и накопленное не уйдёт
+  });
+
+  // Открытие — холодный старт или возврат после 5 минут в фоне: короткий
+  // взгляд на другое приложение не новое открытие. При сворачивании — сколько
+  // смотрел.
+  let shownAt = Date.now(), hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (!APP) return;
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now();
+      track('app.hide', { seconds: Math.min(86400, Math.round((hiddenAt - shownAt) / 1000)) });
+      flush(true);
+    } else {
+      if (hiddenAt && Date.now() - hiddenAt > 5 * 60000) { shownAt = Date.now(); track('app.open'); flush(); loadFeed(); }
+      else if (hiddenAt) shownAt += Date.now() - hiddenAt;   // фон не считаем временем просмотра
+    }
+  });
+
+  // ===== ОБЪЯВЛЕНИЯ =====
+  // Публикует астролог в панели (раздел «Приложение»); приложение забирает
+  // действующие при открытии. Показывается одно, самое новое из нескрытых;
+  // скрытое помнит телефон и больше не показывает. Туда же — «вышла версия».
+  const SEEN_KEY = 'astrolab_notices_hidden';
+  const notices = [];
+  let noticeShown = null;
+  const elN = { box: document.getElementById('notice'), kicker: document.getElementById('notice-kicker'), title: document.getElementById('notice-title'),
+    body: document.getElementById('notice-body'), link: document.getElementById('notice-link'), close: document.getElementById('notice-close') };
+  function offerNotice(n) {
+    if ((store.get(SEEN_KEY) || []).includes(n.key) || notices.some(x => x.key === n.key)) return;
+    notices.push(n); showNotice();
+  }
+  function showNotice() {
+    const hidden = store.get(SEEN_KEY) || [];
+    // новая версия важнее объявлений: без неё не работают и новые функции
+    const n = notices.find(x => x.key.startsWith('v') && !hidden.includes(x.key)) || notices.find(x => !hidden.includes(x.key));
+    noticeShown = n || null;
+    elN.box.hidden = !n;
+    if (!n) return;
+    elN.kicker.textContent = n.kicker || 'Объявление';
+    elN.title.textContent = n.title;
+    elN.body.textContent = n.body;
+    elN.link.hidden = !n.linkUrl;
+    if (n.linkUrl) { elN.link.href = n.linkUrl; elN.link.textContent = n.linkLabel || 'Подробнее'; }
+  }
+  elN.link.addEventListener('click', () => { if (noticeShown && noticeShown.onOpen) noticeShown.onOpen(); flush(true); });
+  elN.close.addEventListener('click', () => {
+    if (!noticeShown) return;
+    if (noticeShown.onDismiss) noticeShown.onDismiss();
+    store.set(SEEN_KEY, [...(store.get(SEEN_KEY) || []), noticeShown.key].slice(-200));
+    showNotice();
+  });
+  async function loadFeed() {
+    try {
+      const r = await fetch(API_BASE + '/app/feed');
+      if (!r.ok) return;
+      const { announcements } = await r.json();
+      // сервер отдаёт новые первыми — в этом порядке они и встают в очередь
+      for (const a of announcements) offerNotice({
+        key: 'a' + a.id, title: a.title, body: a.body, linkUrl: a.linkUrl, linkLabel: a.linkLabel,
+        onOpen: () => track('announcement.open', { id: a.id }), onDismiss: () => track('announcement.dismiss', { id: a.id }) });
+    } catch (e) { /* без сети объявления подождут */ }
+  }
+
   if (APP) {
     el.version.textContent = APP_VERSION;
+    track('app.open'); flush(); loadFeed();
     updateCard();
     if (profile) compute(); else { showPending(todayIn(deviceTz())); el.status.textContent = ''; openSettings(); }
     checkUpdate(true);
