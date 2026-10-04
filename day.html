@@ -21,6 +21,10 @@
   сборки пропускает анимацию; в приложении тап по центру открывает экран
   «Небо» (sky.html) — отдельной страницы карты нет.
 
+  Плашка с Луной под датой (только в приложении) открывает лунный
+  календарь: фаза сейчас, Луна без курса, ближайшие фазы и затмения,
+  месяц сеткой. Считает движок (src/moon-calendar.ts).
+
   Меню (кнопка в верхней строке, только в приложении): данные рождения,
   небо, шаги за сегодня, обновление, статистика. Шаги считает телефон
   (плагин Steps в app/android) — задел под игру «полёт к планетам».
@@ -153,6 +157,13 @@
     font-size: 14px;
   }
   .moon-glyph { color: var(--accent); font-size: 16px; }
+  /* в приложении плашка открывает лунный календарь; в прототипе — просто надпись */
+  .moon-chip { font: inherit; font-size: 14px; }
+  .moon-chip:not(:disabled) { cursor: pointer; }
+  .moon-chip:not(:disabled):hover { border-color: var(--modal-border); }
+  .moon-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .moon-more { color: var(--accent); font-size: 17px; line-height: 1; }
+  .moon-chip:disabled .moon-more { display: none; }
 
   /* ===== ПОЛОСЫ СФЕР ===== */
   .spheres { display: flex; flex-direction: column; gap: 14px; }
@@ -457,6 +468,45 @@
   .sh-row.is-now .sh-h { color: var(--accent); }
   .sh-note { font-size: 12px; color: var(--muted); line-height: 1.45; }
   .menu .about { padding: 14px 8px 0; }
+
+  /* ===== ЛУНА ===== шторка лунного календаря (тап по плашке с Луной):
+     сейчас, Луна без курса, ближайшие фазы, месяц сеткой */
+  :root {
+    --moon-lit:    #E8E6DC;
+    --moon-dark:   #2E3448;
+    --moon-crater: #B9B6AC;
+  }
+  .moon-body { display: flex; flex-direction: column; gap: 18px; padding: 4px 8px 4px; }
+  .moon-wait { font-size: 14px; color: var(--muted); padding: 12px 0; }
+  .mn-now { display: flex; align-items: center; gap: 14px; }
+  .mn-pic { flex: 0 0 72px; width: 72px; height: 72px; }
+  .mn-pic svg, .mn-ico svg, .mn-cell svg { width: 100%; height: 100%; display: block; }
+  .mn-now-text { display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: var(--text-dim); }
+  .mn-now-text b { font-size: 17px; color: var(--text); }
+  .mn-block h3 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+  .mn-block p { font-size: 14px; color: var(--text-dim); line-height: 1.45; }
+  .mn-block p b { color: var(--text); }
+  .mn-note { font-size: 12.5px !important; color: var(--muted) !important; margin-top: 4px; }
+  .mn-phases { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .mn-phases li { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; font-size: 14px; color: var(--text-dim); }
+  .mn-phases li b { color: var(--text); font-weight: 600; }
+  .mn-ico { width: 22px; height: 22px; }
+  .mn-ecl { grid-column: 2 / 4; font-size: 12.5px; color: var(--accent); margin-top: -4px; }
+  .mn-month-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .mn-month-head h3 { margin: 0; }
+  .mn-nav { width: 40px; height: 40px; border: 0; border-radius: 10px; background: none; color: var(--accent); font-size: 22px; cursor: pointer; }
+  .mn-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .mn-wd { text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 2px; }
+  .mn-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 0 4px; min-height: 58px; border-radius: 10px;
+    border: 1px solid transparent; background: none; color: var(--text-dim); font: inherit; font-size: 12px; cursor: pointer; }
+  .mn-cell span:first-child { font-variant-numeric: tabular-nums; }
+  .mn-cell i { font-style: normal; font-size: 12px; color: var(--accent); font-family: 'Segoe UI Symbol','Apple Symbols','Noto Sans Symbols','Noto Sans Symbols 2','DejaVu Sans',sans-serif; }
+  .mn-cell .mn-mini { width: 18px; height: 18px; }
+  .mn-cell.is-today { border-color: var(--accent); color: var(--text); }
+  .mn-cell.is-event span:first-child { color: var(--accent); font-weight: 700; }
+  .mn-cell.is-sel { background: var(--track); }
+  .mn-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .mn-day-info { min-height: 3em; margin-top: 8px; }
   .menu .about p { font-size: 12.5px; color: var(--muted); }
   .menu .about a { color: var(--periwinkle); }
   body.menu-open { overflow: hidden; }
@@ -626,10 +676,11 @@
     <div class="day-head-center">
       <div class="day-kicker" id="day-kicker">Сегодня</div>
       <h1 class="day-date" id="day-date">—</h1>
-      <div class="moon-chip" id="moon-chip">
+      <button class="moon-chip" id="moon-chip" type="button" disabled aria-haspopup="dialog">
         <span class="moon-glyph" aria-hidden="true">☽</span>
         <span id="moon-text">—</span>
-      </div>
+        <span class="moon-more" aria-hidden="true">›</span>
+      </button>
     </div>
     <button class="nav-arrow" id="next-day" aria-label="Следующий день">›</button>
   </header>
@@ -746,6 +797,18 @@
       <p class="app-credits">Расчёт — Swiss Ephemeris (AGPL). Города — GeoNames (CC BY 4.0). Звёзды и созвездия — d3-celestial (BSD).
         Исходный код открыт: <a href="https://github.com/AstroLab-you/astrolab-day">github.com/AstroLab-you/astrolab-day</a></p>
     </div>
+  </div>
+</section>
+
+<!-- ===== ЛУНА ===== только в приложении: лунный календарь из плашки с Луной -->
+<section class="menu" id="moon-sheet" role="dialog" aria-modal="true" aria-labelledby="moon-title" hidden>
+  <div class="menu-sheet">
+    <div class="menu-grip" aria-hidden="true"></div>
+    <div class="menu-head">
+      <h2 id="moon-title">Луна</h2>
+      <button class="x-close" id="moon-close" type="button" aria-label="Закрыть">×</button>
+    </div>
+    <div class="moon-body" id="moon-body"><p class="moon-wait">Считаю Луну…</p></div>
   </div>
 </section>
 
@@ -896,7 +959,8 @@
   let wheelReady = false;
   function sendToWheel(msg) { if (wheelReady) el.wheel.contentWindow.postMessage(msg, '*'); }
   function renderWheelFor(day) {
-    el.moonText.textContent = `Луна в ${day.moon.signIn || SIGN_IN[day.moon.sign] || day.moon.sign} · ${day.moon.natalHouse} дом`;
+    const moonIn = day.moon.signIn || SIGN_IN[day.moon.sign] || day.moon.sign;
+    el.moonText.textContent = `Луна ${/^Льв/.test(moonIn) ? 'во' : 'в'} ${moonIn} · ${day.moon.natalHouse} дом`;
     sendToWheel({ type: 'sky', date: day.date, sky: day.sky, contacts: day.contacts, natal: DATA.natal, center: headline(day.moon.text) });
   }
   el.wheel.addEventListener('load', () => { wheelReady = true; if (DATA) renderWheelFor(DATA.days[current]); });
@@ -1063,7 +1127,8 @@
     if (DATA && current < DATA.days.length - 1) { current++; render(); track('day.switch', { via: 'arrow', offset: dayOffset() }); }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !el.menu.hidden) closeMenu();
+    if (e.key === 'Escape' && !moonEl.sheet.hidden) closeMoon();
+    else if (e.key === 'Escape' && !el.menu.hidden) closeMenu();
     else if (e.key === 'Escape' && !el.settings.hidden && profile) closeSettings();
     else if (e.key === 'Escape' && openId) toggleSphere(openId);
   });
@@ -1074,7 +1139,7 @@
   // отменяет касание (touchcancel), и свайп не доходит до конца. Над
   // колесом касания ловит iframe — он присылает {type:'swipe'} сам.
   function swipe(dir) {
-    if (!DATA || document.body.classList.contains('settings-open') || document.body.classList.contains('menu-open')) return;
+    if (!DATA || ['settings-open', 'menu-open', 'moon-open'].some(c => document.body.classList.contains(c))) return;
     const next = current + dir;
     if (next < 0 || next > DATA.days.length - 1) return;
     current = next; render(); slideIn(dir);
@@ -1174,16 +1239,18 @@
   // Расчёт — в модульном Web Worker (engine.js + sweph.mjs). Результат
   // кэшируется на день: повторное открытие показывает его сразу.
   let worker = null;
+  // один фоновый поток на прогноз и Луну: WebAssembly грузится один раз
+  function ensureWorker() {
+    if (!worker) { try { worker = new Worker('engine.js', { type: 'module' }); } catch (e) { worker = null; } }
+    return worker;
+  }
   function compute() {
     const tz = deviceTz(), today = todayIn(tz);
     const key = JSON.stringify([profile, today, tz, APP_VERSION]);
     const cached = store.get(CACHE_KEY);
     if (cached && cached.key === key) { show(cached.data); return; }
     showPending(today);
-    if (!worker) {
-      try { worker = new Worker('engine.js', { type: 'module' }); }
-      catch (e) { el.status.textContent = 'Расчёт недоступен: страницу нужно открыть в приложении.'; return; }
-    }
+    if (!ensureWorker()) { el.status.textContent = 'Расчёт недоступен: страницу нужно открыть в приложении.'; return; }
     const [y, m, d] = profile.date.split('-').map(Number), [hh, mm] = profile.time.split(':').map(Number);
     worker.onmessage = e => {
       if (e.data.type === 'done') { store.set(CACHE_KEY, { key, data: e.data.forecast }); show(e.data.forecast); }
@@ -1306,6 +1373,175 @@
     try { showSteps(await (ask ? Steps.request() : Steps.today())); }
     catch (e) { el.mStepsSub.textContent = 'Не удалось прочитать датчик: ' + ((e && e.message) || e); }
   }
+  // ===== ЛУНА: ЛУННЫЙ КАЛЕНДАРЬ =====
+  // Тап по плашке с Луной. Считает движок (src/moon-calendar.ts): фаза
+  // сейчас, Луна без курса, ближайшие фазы и затмения, месяц сеткой.
+  // Лунные сутки и «календарь стрижек» не показываем — это приметы, а не
+  // астрономия, и бренду «для тех, кто не очень-то верит» они чужие.
+  const MOON_SIGNS = ['Овен', 'Телец', 'Близнецы', 'Рак', 'Лев', 'Дева', 'Весы', 'Скорпион', 'Стрелец', 'Козерог', 'Водолей', 'Рыбы'];
+  const MOON_SIGNS_TO = ['Овен', 'Тельца', 'Близнецов', 'Рак', 'Льва', 'Деву', 'Весы', 'Скорпиона', 'Стрельца', 'Козерога', 'Водолея', 'Рыбы'];
+  const MOON_SIGN_GLYPH = ['♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓'];
+  const PHASE_EVENT = ['Новолуние', 'Первая четверть', 'Полнолуние', 'Последняя четверть'];
+  // Название фазы: главные фазы — в пределах ±12° (около суток) от точной,
+  // между ними — серп и «растущая/убывающая Луна»
+  function phaseName(e) {
+    const k = Math.round(e / 90) % 4;
+    if (Math.abs(((e - k * 90 + 540) % 360) - 180) < 12) return PHASE_EVENT[k];
+    return ['Растущий серп', 'Растущая Луна', 'Убывающая Луна', 'Убывающий серп'][Math.floor(e / 90) % 4];
+  }
+  const ECLIPSE = { solar: 'солнечное затмение', lunar: 'лунное затмение', penumbral: 'полутеневое лунное затмение — Луна лишь чуть темнеет' };
+  const MONTHS_NOM = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+  const moonEl = { chip: el.moonChip, sheet: document.getElementById('moon-sheet'), close: document.getElementById('moon-close'), body: document.getElementById('moon-body') };
+  const moonCache = new Map();   // «2026-10» → ответ движка; сбрасывается при каждом открытии
+  let moonView = null, moonSel = null, moonFocus = null;
+
+  // Диск Луны с фазой e (элонгация, °): освещённая половина плюс край тени —
+  // половинка эллипса; на убыли — зеркально (северное полушарие)
+  function moonSVG(e, craters) {
+    const r = 34, rx = (Math.abs(Math.cos(e * Math.PI / 180)) * r).toFixed(1);
+    const crescent = (1 - Math.cos(e * Math.PI / 180)) / 2 < 0.5, waxing = e < 180;
+    return `<svg viewBox="-38 -38 76 76" aria-hidden="true"><circle r="${r}" style="fill:var(--moon-dark);stroke:var(--border);stroke-width:1.5"/>`
+      + `<path d="M0 ${-r}A${r} ${r} 0 0 1 0 ${r}A${rx} ${r} 0 0 ${crescent ? 0 : 1} 0 ${-r}Z" style="fill:var(--moon-lit)"${waxing ? '' : ' transform="scale(-1 1)"'}/>`
+      + (craters ? '<g style="fill:var(--moon-crater)" opacity=".3"><circle cx="-10" cy="-12" r="7"/><circle cx="9" cy="6" r="5"/><circle cx="-4" cy="15" r="4"/><circle cx="14" cy="-14" r="3"/></g>' : '')
+      + '</svg>';
+  }
+  const moonTz = () => tzOf();
+  const vo = w => (/^Льв/.test(w) ? 'во ' : 'в ') + w;   // «во Льве», «во Льва»
+  function moonParts(ms) {
+    const p = {}; for (const x of new Intl.DateTimeFormat('en-CA', { timeZone: moonTz(), year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(ms))) p[x.type] = x.value;
+    return { ymd: `${p.year}-${p.month}-${p.day}`, hm: `${p.hour}:${p.minute}`, d: +p.day, m: +p.month };
+  }
+  const dayWord = parts => `${parts.d} ${MONTHS_GEN[parts.m - 1]}`;
+  const shiftYmd = (ymd, n) => { const d = new Date(ymd + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  function houseNow(lon) {
+    const cusps = DATA && DATA.natal && DATA.natal.houses ? DATA.natal.houses.map(h => h.longitude) : null;
+    if (!cusps) return null;
+    for (let i = 0; i < 12; i++) {
+      const a = cusps[i], b = cusps[(i + 1) % 12], span = ((b - a) % 360 + 360) % 360, d = ((lon - a) % 360 + 360) % 360;
+      if (d < span) return i + 1;
+    }
+    return null;
+  }
+
+  // «с 14:20 до 21:05», «до 05:10 (началась вчера в 23:40)», «весь день»
+  function vocText(v, today) {
+    const a = moonParts(v.from), b = moonParts(v.to);
+    const startTxt = a.ymd === shiftYmd(today, -1) ? `вчера в ${a.hm}` : `${dayWord(a)} в ${a.hm}`;
+    const endTxt = b.ymd === shiftYmd(today, 1) ? `завтра, ${b.hm}` : `${dayWord(b)}, ${b.hm}`;
+    if (a.ymd < today && b.ymd > today) return 'весь день';
+    if (a.ymd < today) return `до ${b.hm} (началась ${startTxt})`;
+    if (b.ymd > today) return `с ${a.hm} до ${endTxt}`;
+    return `с ${a.hm} до ${b.hm}`;
+  }
+
+  function renderMoon() {
+    const r = moonView; if (!r) return;
+    const today = moonParts(Date.now()).ymd, now = Date.now();
+    const house = houseNow(r.now.lon);
+    const nowTxt = `<div class="mn-now"><span class="mn-pic">${moonSVG(r.now.elong, true)}</span><div class="mn-now-text">`
+      + `<b>${phaseName(r.now.elong)}</b><span>Освещено ${Math.round(r.now.lit * 100)}%</span>`
+      + `<span>Луна ${vo(SIGN_IN[MOON_SIGNS[r.now.sign]])}${house ? ` · ${house}-й дом вашей карты` : ''}</span></div></div>`;
+
+    // Луна без курса: сейчас, сегодня, иначе — следующая
+    const cur = r.voc.find(v => v.from <= now && v.to > now);
+    const todays = r.voc.filter(v => moonParts(v.from).ymd <= today && moonParts(v.to).ymd >= today);
+    const next = r.voc.find(v => v.from > now && moonParts(v.from).ymd > today);
+    let voc;
+    if (cur) {
+      const end = moonParts(cur.to);
+      voc = `<p><b>Сейчас Луна без курса</b> — до ${end.ymd === today ? end.hm : `${dayWord(end)}, ${end.hm}`}, потом она перейдёт ${vo(MOON_SIGNS_TO[(cur.sign + 1) % 12])}.</p>`;
+    } else if (todays.length) voc = `<p>Сегодня ${todays.map(v => vocText(v, today)).join(' и ')}.</p>`;
+    else voc = `<p>Сегодня нет.${next ? ` Следующая — ${dayWord(moonParts(next.from))}, ${vocText(next, moonParts(next.from).ymd)}.` : ''}</p>`;
+    voc += '<p class="mn-note">Луна уже сделала все аспекты в своём знаке и ещё не перешла в следующий. По традиции в это время важное не начинают: договоры, крупные покупки, старт дел.</p>';
+
+    const upcoming = r.phases.filter(p => p.ms > now).slice(0, 4);
+    const phasesTxt = `<ul class="mn-phases">${upcoming.map(p => {
+      const t = moonParts(p.ms);
+      return `<li><span class="mn-ico">${moonSVG(p.kind * 90, false)}</span><b>${PHASE_EVENT[p.kind]}</b><span>${dayWord(t)}, ${t.hm}</span>`
+        + (p.eclipse ? `<span class="mn-ecl">${ECLIPSE[p.eclipse]}</span>` : '') + '</li>';
+    }).join('')}</ul>`;
+
+    // месяц: неделя с понедельника; день с фазой — номер латунью
+    const first = new Date(r.year, r.month - 1, 1), lead = (first.getDay() + 6) % 7;
+    const eventByDay = new Map(r.phases.map(p => [moonParts(p.ms).ymd, p]));
+    const cells = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(w => `<span class="mn-wd">${w}</span>`).concat(Array(lead).fill('<span></span>'));
+    r.days.forEach((d, i) => {
+      const ev = eventByDay.get(d.ymd);
+      cells.push(`<button type="button" class="mn-cell${d.ymd === today ? ' is-today' : ''}${ev ? ' is-event' : ''}${moonSel === d.ymd ? ' is-sel' : ''}" data-i="${i}"`
+        + ` aria-label="${i + 1} ${MONTHS_GEN[r.month - 1]}: Луна ${vo(SIGN_IN[MOON_SIGNS[d.sign]])}${ev ? ', ' + PHASE_EVENT[ev.kind].toLowerCase() : ''}">`
+        + `<span>${i + 1}</span><span class="mn-mini">${moonSVG(d.elong, false)}</span><i>${MOON_SIGN_GLYPH[d.sign]}&#xFE0E;</i></button>`);
+    });
+    const monthTxt = `<div class="mn-month-head"><button class="mn-nav" type="button" data-nav="-1" aria-label="Предыдущий месяц">‹</button>`
+      + `<h3>${MONTHS_NOM[r.month - 1]} ${r.year}</h3><button class="mn-nav" type="button" data-nav="1" aria-label="Следующий месяц">›</button></div>`
+      + `<div class="mn-grid">${cells.join('')}</div><p class="mn-day-info" id="mn-day-info" aria-live="polite">${moonDayInfo(r, moonSel)}</p>`;
+
+    moonEl.body.innerHTML = nowTxt
+      + `<div class="mn-block"><h3>Луна без курса</h3>${voc}</div>`
+      + `<div class="mn-block"><h3>Ближайшие фазы</h3>${phasesTxt}</div>`
+      + `<div class="mn-block">${monthTxt}</div>`;
+  }
+  // подпись под сеткой: что с Луной в выбранный день
+  function moonDayInfo(r, ymd) {
+    const i = r.days.findIndex(d => d.ymd === ymd);
+    if (i < 0) return 'Нажмите на день — покажу фазу и знак Луны.';
+    const d = r.days[i], ev = r.phases.find(p => moonParts(p.ms).ymd === d.ymd);
+    const startSign = d.ingress ? (d.ingress.sign + 11) % 12 : d.sign;
+    let t = `<b>${i + 1} ${MONTHS_GEN[r.month - 1]}:</b> ${phaseName(d.elong).toLowerCase().replace('луна', 'Луна')}, освещено ${Math.round(d.lit * 100)}%. `;
+    t += d.ingress ? `Луна ${vo(SIGN_IN[MOON_SIGNS[startSign]])}, в ${moonParts(d.ingress.ms).hm} переходит ${vo(MOON_SIGNS_TO[d.ingress.sign])}.` : `Луна ${vo(SIGN_IN[MOON_SIGNS[d.sign]])}.`;
+    if (ev) t += ` ${PHASE_EVENT[ev.kind]} в ${moonParts(ev.ms).hm}${ev.eclipse ? ` — ${ECLIPSE[ev.eclipse]}` : ''}.`;
+    return t;
+  }
+
+  function loadMoon(year, month) {
+    const key = `${year}-${month}`;
+    if (moonCache.has(key)) { moonView = moonCache.get(key); renderMoon(); return; }
+    const w = ensureWorker();
+    if (!w) { moonEl.body.innerHTML = '<p class="moon-wait">Лунный календарь считается только в приложении.</p>'; return; }
+    if (!moonView) moonEl.body.innerHTML = '<p class="moon-wait">Считаю Луну…</p>';
+    w.postMessage({ type: 'moon', ms: Date.now(), tz: moonTz(), year, month });
+  }
+  // ответы движка о Луне; прогноз дня слушает тот же поток через onmessage
+  function onMoonMessage(e) {
+    if (!e.data || e.data.type !== 'moon') return;
+    moonCache.set(`${e.data.year}-${e.data.month}`, e.data);
+    moonView = e.data; renderMoon();
+  }
+  let moonListening = false;
+  function openMoon() {
+    if (!APP || !DATA) return;
+    moonFocus = document.activeElement;
+    moonEl.sheet.hidden = false; document.body.classList.add('moon-open');
+    moonEl.close.focus();
+    const w = ensureWorker();
+    if (w && !moonListening) { w.addEventListener('message', onMoonMessage); moonListening = true; }
+    const t = moonParts(Date.now());
+    moonSel = t.ymd;
+    moonCache.clear();   // «сейчас» и «Луна без курса» — на момент открытия
+    moonView = null;
+    loadMoon(+t.ymd.slice(0, 4), t.m);
+  }
+  function closeMoon() {
+    moonEl.sheet.hidden = true; document.body.classList.remove('moon-open');
+    if (moonFocus) moonFocus.focus({ preventScroll: true });
+  }
+  moonEl.chip.addEventListener('click', openMoon);
+  moonEl.close.addEventListener('click', closeMoon);
+  moonEl.sheet.addEventListener('click', (e) => {
+    if (e.target === moonEl.sheet) { closeMoon(); return; }
+    const nav = e.target.closest('[data-nav]');
+    if (nav && moonView) {
+      let y = moonView.year, m = moonView.month + +nav.dataset.nav;
+      if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+      moonSel = null; loadMoon(y, m); return;
+    }
+    const cell = e.target.closest('.mn-cell');
+    if (cell && moonView) {
+      moonSel = moonView.days[+cell.dataset.i].ymd;
+      moonEl.body.querySelectorAll('.mn-cell').forEach(c => c.classList.toggle('is-sel', c === cell));
+      document.getElementById('mn-day-info').innerHTML = moonDayInfo(moonView, moonSel);
+    }
+  });
+
   // тап: нет разрешения — спросить; есть — раскрыть или свернуть шаги по часам
   el.mSteps.addEventListener('click', async () => {
     if (stepsData && !stepsEl.panel.hidden) { stepsEl.panel.hidden = true; el.mSteps.setAttribute('aria-expanded', 'false'); return; }
@@ -1553,6 +1789,7 @@
   if (APP) {
     el.updateStatus.textContent = `Версия ${APP_VERSION}`;
     el.wheelCard.hidden = true;   // данные рождения — в меню
+    el.moonChip.disabled = false;   // плашка с Луной открывает лунный календарь
     // возврат с «Неба» — не новое открытие приложения
     if (!RETURNING) track('app.open');
     flush(); loadFeed();

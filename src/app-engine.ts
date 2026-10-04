@@ -10,6 +10,10 @@
  *
  * Экран «Небо» (sky.html) спрашивает положения планет на момент:
  * Вход:  { type: 'sky', ms }    Выход: { type: 'sky', jd, bodies }
+ *
+ * Шторка «Луна» на экране дня — лунный календарь месяца:
+ * Вход:  { type: 'moon', ms, tz, year, month }
+ * Выход: { type: 'moon', year, month, now, phases, voc, days }
  */
 
 // @ts-expect-error — модуль Emscripten без типов, лежит рядом с engine.js
@@ -17,13 +21,19 @@ import createSweph from './sweph.mjs';
 import { loadWasmEphemeris } from './eph-wasm.ts';
 import { buildForecast, type ForecastInput } from './forecast.ts';
 import { skyNow } from './sky-now.ts';
+import { moonCalendar } from './moon-calendar.ts';
 
 const ready = loadWasmEphemeris(createSweph);
 
-self.onmessage = async (e: MessageEvent<Omit<ForecastInput, 'onStep'> | { type: 'sky'; ms: number }>) => {
+type MoonAsk = { type: 'moon'; ms: number; tz: string; year: number; month: number };
+self.onmessage = async (e: MessageEvent<Omit<ForecastInput, 'onStep'> | { type: 'sky'; ms: number } | MoonAsk>) => {
   try {
     await ready;
     if ('type' in e.data && e.data.type === 'sky') { self.postMessage({ type: 'sky', ...skyNow(e.data.ms) }); return; }
+    if ('type' in e.data && e.data.type === 'moon') {
+      const q = e.data;
+      self.postMessage({ type: 'moon', year: q.year, month: q.month, ...moonCalendar(q) }); return;
+    }
     const forecast = buildForecast({ ...(e.data as Omit<ForecastInput, 'onStep'>), onStep: (step, ms) => self.postMessage({ type: 'step', step, ms }) });
     self.postMessage({ type: 'done', forecast });
   } catch (err) {

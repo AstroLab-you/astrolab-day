@@ -712,12 +712,18 @@
   /* ===== КАРТОЧКА: РИСУНОК, ФАКТ, РАССТОЯНИЕ ===== */
   const AU_KM = 149597870.7, AU_LIGHT_S = 499.005;
   // фаза Луны — по разнице долгот Луны и Солнца (элонгации)
-  const PHASES = ['новолуние', 'растущий серп', 'первая четверть', 'растущая Луна', 'полнолуние', 'убывающая Луна', 'последняя четверть', 'убывающий серп'];
+  // главные фазы — в пределах ±12° (около суток) от точной, между ними — серп и «растущая/убывающая Луна»
+  const PHASE_MAIN = ['новолуние', 'первая четверть', 'полнолуние', 'последняя четверть'];
+  const PHASE_BETWEEN = ['растущий серп', 'растущая Луна', 'убывающая Луна', 'убывающий серп'];
+  function phaseName(e) {
+    const k = Math.round(e / 90) % 4;
+    return Math.abs(((e - k * 90 + 540) % 360) - 180) < 12 ? PHASE_MAIN[k] : PHASE_BETWEEN[Math.floor(e / 90) % 4];
+  }
   function moonPhase() {
     const m = frame.bodies.find(x => x.id === 'moon'), s = frame.bodies.find(x => x.id === 'sun');
     if (!m || !s) return null;
     const e = ((m.lon - s.lon) % 360 + 360) % 360;
-    return { e, lit: (1 - Math.cos(e * D2R)) / 2, name: PHASES[Math.round(e / 45) % 8] };
+    return { e, lit: (1 - Math.cos(e * D2R)) / 2, name: phaseName(e) };
   }
   function distanceLine(id, au) {
     const km = au * AU_KM, sec = au * AU_LIGHT_S;
