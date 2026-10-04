@@ -424,7 +424,38 @@
   .menu-sub:empty { display: none; }
   .menu-sub a { color: var(--periwinkle); }
   .menu-arrow { color: var(--accent); font-size: 20px; }
+  .menu-arrow { transition: transform .2s; }
+  .menu-item[aria-expanded="true"] .menu-arrow { transform: rotate(90deg); }
   .menu-check { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--accent); cursor: pointer; }
+  /* ===== ШАГИ ПО ЧАСАМ ===== раскрываются под пунктом меню. Строка — час:
+     время, полоса, число. Полосы горизонтальные, чтобы число стояло рядом
+     целиком: график нужен сверить с тем, когда и сколько человек ходил.
+     Час-оценка (телефон не отдавал показания, шаги размазаны по времени)
+     — штриховкой и со знаком ≈. Пустые часы подряд — одной строкой. */
+  :root {
+    --steps-bar:   #C9A45C;
+    --steps-est:   rgba(201,164,92,0.42);
+    --steps-track: rgba(244,241,233,0.06);
+  }
+  .steps-panel { padding: 4px 8px 12px 48px; display: flex; flex-direction: column; gap: 8px; }
+  .steps-panel[hidden] { display: none; }
+  .sh-tabs { display: flex; gap: 6px; }
+  .sh-tab { min-height: 32px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border); background: none; color: var(--text-dim);
+    font: inherit; font-size: 13px; cursor: pointer; }
+  .sh-tab[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
+  .sh-sum { font-size: 13px; color: var(--text-dim); }
+  .sh-sum b { color: var(--text); }
+  .sh-rows { display: flex; flex-direction: column; gap: 3px; }
+  .sh-row { display: grid; grid-template-columns: 44px 1fr 58px; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-dim);
+    font-variant-numeric: tabular-nums; min-height: 18px; }
+  .sh-bar { height: 10px; border-radius: 3px; background: var(--steps-track); overflow: hidden; }
+  .sh-bar i { display: block; height: 100%; border-radius: 3px; background: var(--steps-bar); }
+  .sh-row.is-est .sh-bar i { background: repeating-linear-gradient(135deg, var(--steps-est) 0 3px, transparent 3px 6px); }
+  .sh-n { text-align: right; }
+  .sh-row.is-gap { color: var(--muted); }
+  .sh-row.is-gap .sh-bar { background: none; }
+  .sh-row.is-now .sh-h { color: var(--accent); }
+  .sh-note { font-size: 12px; color: var(--muted); line-height: 1.45; }
   .menu .about { padding: 14px 8px 0; }
   .menu .about p { font-size: 12.5px; color: var(--muted); }
   .menu .about a { color: var(--periwinkle); }
@@ -690,6 +721,15 @@
         <span class="menu-text"><span class="menu-title">Шаги за сегодня</span><span class="menu-sub" id="m-steps-sub">—</span></span>
         <span class="menu-arrow" aria-hidden="true">›</span>
       </button>
+      <div class="steps-panel" id="steps-panel" hidden>
+        <div class="sh-tabs" role="group" aria-label="День">
+          <button class="sh-tab" type="button" data-day="0" aria-pressed="true">Сегодня</button>
+          <button class="sh-tab" type="button" data-day="1" aria-pressed="false">Вчера</button>
+        </div>
+        <p class="sh-sum" id="sh-sum"></p>
+        <div class="sh-rows" id="sh-rows"></div>
+        <p class="sh-note">Штриховка и ≈ — час посчитан оценкой: телефон в это время не отдавал показания, и шаги разделены по времени между соседними часами.</p>
+      </div>
       <!-- div, а не button: в подписи может быть ссылка «Скачать», а ссылка внутри кнопки — не ссылка -->
       <div class="menu-item" id="check-update" role="button" tabindex="0">
         <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg></span>
@@ -1195,13 +1235,18 @@
 
   // ===== ШАГИ =====
   // Считает телефон: датчик копит шаги сам, плагин Steps (app/android)
-  // читает его при открытии меню и держит границу суток. Задел под игру
-  // «полёт к планетам» — правил пока нет, проверяем, что счёт идёт.
-  // Шаги остаются в телефоне, в статистику не уходят.
+  // читает его раз в час и при открытии меню и раскладывает шаги по часам.
+  // Задел под игру «полёт к планетам» — правил пока нет, проверяем, что
+  // счёт идёт: тап по пункту раскрывает шаги по часам. Шаги остаются
+  // в телефоне, в статистику не уходят.
   const Steps = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Steps) || null;
-  const STEPS_SINCE_KEY = 'astrolab_steps_since';   // когда счёт начался: первый день неполный
   const stepsWord = n => { const a = n % 10, b = n % 100; return (b >= 11 && b <= 19) ? 'шагов' : a === 1 ? 'шаг' : (a >= 2 && a <= 4) ? 'шага' : 'шагов'; };
   const localYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const fmtN = n => n.toLocaleString('ru-RU');
+  const hh2 = h => String(h).padStart(2, '0');
+  const stepsEl = { panel: document.getElementById('steps-panel'), sum: document.getElementById('sh-sum'), rows: document.getElementById('sh-rows'),
+    tabs: [...document.querySelectorAll('.sh-tab')] };
+  let stepsData = null, stepsDayBack = 0;
   function showSteps(r) {
     el.mSteps.disabled = false;
     if (!r.sensor) { el.mStepsSub.textContent = 'В этом телефоне нет счётчика шагов.'; el.mSteps.disabled = true; return; }
@@ -1209,23 +1254,64 @@
       el.mStepsSub.textContent = r.permission === 'denied'
         ? 'Доступ закрыт. Разрешите «Физическую активность» в настройках приложения.'
         : 'Нажмите, чтобы разрешить доступ к счётчику шагов.';
+      stepsEl.panel.hidden = true;
       return;
     }
-    let since = store.get(STEPS_SINCE_KEY);
-    if (!since) { since = r.readAt; store.set(STEPS_SINCE_KEY, since); }
-    const parts = [`${r.steps.toLocaleString('ru-RU')} ${stepsWord(r.steps)}`];
+    stepsData = r;
+    const parts = [`${fmtN(r.steps)} ${stepsWord(r.steps)}`];
     const y = new Date(); y.setDate(y.getDate() - 1);
-    if (r.history && r.history[localYmd(y)] != null) parts.push(`вчера ${(+r.history[localYmd(y)]).toLocaleString('ru-RU')}`);
-    if (localYmd(new Date(since)) === r.day) parts.push(`счёт идёт с ${new Date(since).toTimeString().slice(0, 5)}`);
+    if (r.history && r.history[localYmd(y)] != null) parts.push(`вчера ${fmtN(+r.history[localYmd(y)])}`);
+    if (r.since && localYmd(new Date(r.since)) === r.day) parts.push(`счёт идёт с ${new Date(r.since).toTimeString().slice(0, 5)}`);
     el.mStepsSub.textContent = parts.join(' · ');
+    if (!stepsEl.panel.hidden) renderStepHours();
   }
+  // Строки по часам. Сегодня — до текущего часа. Часы до начала счёта —
+  // «счёт ещё не шёл» (это не ноль). Пустые часы подряд — одной строкой.
+  function renderStepHours() {
+    const r = stepsData; if (!r) return;
+    const d = new Date(); d.setDate(d.getDate() - stepsDayBack);
+    const day = localYmd(d), isToday = stepsDayBack === 0;
+    const hours = (r.hours && r.hours[day]) || null, est = (r.est && r.est[day]) || [];
+    const last = isToday ? new Date().getHours() : 23;
+    const start = r.since && localYmd(new Date(r.since)) === day ? new Date(r.since).getHours() : 0;
+    const total = r.history && r.history[day] != null ? +r.history[day] : 0;
+    stepsEl.tabs.forEach(t => t.setAttribute('aria-pressed', String(+t.dataset.day === stepsDayBack)));
+    if (!hours) {
+      const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+      stepsEl.sum.innerHTML = r.since >= dayEnd ? 'В этот день счёт ещё не шёл.'
+        : total ? `Всего <b>${fmtN(total)}</b> ${stepsWord(total)} — по часам тогда ещё не считали.` : 'Нет данных по часам за этот день.';
+      stepsEl.rows.innerHTML = ''; return;
+    }
+    stepsEl.sum.innerHTML = `Всего <b>${fmtN(total)}</b> ${stepsWord(total)}`;
+    const max = Math.max(1, ...hours.slice(start, last + 1));
+    const rows = [];
+    if (start > 0) rows.push(`<div class="sh-row is-gap"><span class="sh-h">${hh2(0)}–${hh2(start)}</span><span class="sh-bar"></span><span class="sh-n">не шёл</span></div>`);
+    for (let h = start; h <= last;) {
+      if (!hours[h]) {
+        let e = h; while (e + 1 <= last && !hours[e + 1]) e++;
+        rows.push(`<div class="sh-row is-gap${isToday && e === last ? ' is-now' : ''}"><span class="sh-h">${hh2(h)}–${hh2(e + 1)}</span><span class="sh-bar"></span><span class="sh-n">0</span></div>`);
+        h = e + 1; continue;
+      }
+      const isEst = !!est[h];
+      rows.push(`<div class="sh-row${isEst ? ' is-est' : ''}${isToday && h === last ? ' is-now' : ''}"><span class="sh-h">${hh2(h)}–${hh2(h + 1)}</span>`
+        + `<span class="sh-bar"><i style="width:${Math.max(2, Math.round(hours[h] / max * 100))}%"></i></span><span class="sh-n">${isEst ? '≈' : ''}${fmtN(hours[h])}</span></div>`);
+      h++;
+    }
+    stepsEl.rows.innerHTML = rows.join('');
+  }
+  stepsEl.tabs.forEach(t => t.addEventListener('click', () => { stepsDayBack = +t.dataset.day; renderStepHours(); }));
   async function refreshSteps(ask) {
     if (!Steps) { el.mStepsSub.textContent = 'Шаги считаются только в приложении.'; el.mSteps.disabled = true; return; }
     el.mStepsSub.textContent = 'Читаю датчик…';
     try { showSteps(await (ask ? Steps.request() : Steps.today())); }
     catch (e) { el.mStepsSub.textContent = 'Не удалось прочитать датчик: ' + ((e && e.message) || e); }
   }
-  el.mSteps.addEventListener('click', () => refreshSteps(true));
+  // тап: нет разрешения — спросить; есть — раскрыть или свернуть шаги по часам
+  el.mSteps.addEventListener('click', async () => {
+    if (stepsData && !stepsEl.panel.hidden) { stepsEl.panel.hidden = true; el.mSteps.setAttribute('aria-expanded', 'false'); return; }
+    await refreshSteps(true);
+    if (stepsData) { stepsEl.panel.hidden = false; el.mSteps.setAttribute('aria-expanded', 'true'); renderStepHours(); }
+  });
 
   // ===== ПОИСК МЕСТА =====
   // cities.json — выжимка GeoNames (src/build-cities.ts): 43 тыс. мест,

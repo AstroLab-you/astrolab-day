@@ -29,6 +29,12 @@
   Проекция — гномоническая (как у камеры): большие круги неба, в том
   числе горизонт и эклиптика, ложатся прямыми линиями. Поэтому земля под
   горизонтом — просто полуплоскость экрана.
+
+  Прицел: планету держат в кольце по центру 3 секунды — кольцо заполняется,
+  и открывается карточка: рисунок планеты, факт о ней, сколько до неё
+  сейчас, знак и созвездие, дом в вашей карте. Тап по планете или по
+  кнопке внизу открывает ту же карточку сразу. Градусов (высота, азимут)
+  на экране нет — они сбивали; стороны света — словами.
 -->
 <style>
   /* ===== ПАЛИТРА ===== (как у экрана дня) */
@@ -62,6 +68,34 @@
     --moon:        #E8E6DC;
     --planet:      #C9A45C;
     --target:      #E0C48C;
+
+    /* рисунки планет в карточке: цвета по фотографиям, приглушённые */
+    --pl-shade:        #05060C;
+    --pl-sun-core:     #FFF0C2;
+    --pl-sun:          #FFC34D;
+    --pl-sun-edge:     #EE8F2A;
+    --pl-moon:         #E8E6DC;
+    --pl-moon-dark:    #2A2D38;
+    --pl-moon-crater:  #B9B6AC;
+    --pl-mercury:      #A9A39A;
+    --pl-mercury-dark: #77716A;
+    --pl-venus:        #EAD9A6;
+    --pl-venus-band:   #CDB57D;
+    --pl-mars:         #C5643B;
+    --pl-mars-dark:    #8E4127;
+    --pl-mars-cap:     #F2EDE4;
+    --pl-jupiter:      #DCC3A0;
+    --pl-jupiter-band: #B08560;
+    --pl-jupiter-spot: #C0613B;
+    --pl-saturn:       #E3CC93;
+    --pl-saturn-band:  #C4A766;
+    --pl-saturn-ring:  #D9C79A;
+    --pl-uranus:       #A3DCE2;
+    --pl-uranus-ring:  #CDEBEE;
+    --pl-neptune:      #4F72D4;
+    --pl-neptune-spot: #2C4290;
+    --pl-pluto:        #C8AC8B;
+    --pl-pluto-heart:  #EFE2CC;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; background: var(--sky-night); color: var(--text); font-family: var(--font);
@@ -79,9 +113,16 @@
     color: var(--periwinkle); font: inherit; font-size: 13px; cursor: pointer; }
 
   /* ===== ЦЕНТР: ПРИЦЕЛ И ЧТО ПЕРЕД ВАМИ ===== */
-  .sky-aim { position: fixed; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%;
-    border: 1.5px solid var(--modal-border); pointer-events: none; z-index: 1; }
-  .sky-aim-text { position: fixed; left: 0; right: 0; top: calc(50% + 26px); text-align: center; font-size: 13px; color: var(--text-dim);
+  /* прицел — кольцо; пока планета в нём, внешняя дуга заполняется по
+     часовой стрелке за 3 секунды, как значок ожидания */
+  .sky-aim { position: fixed; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; pointer-events: none; z-index: 1; overflow: visible; }
+  .sky-aim circle { fill: none; }
+  .sky-aim .aim-ring { stroke: var(--modal-border); stroke-width: 1.5; transition: stroke .2s; }
+  .sky-aim .aim-track { stroke: transparent; stroke-width: 3; transition: stroke .2s; }
+  .sky-aim .aim-fill { stroke: var(--accent); stroke-width: 3; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 30px 30px; }
+  .sky-aim.locked .aim-ring { stroke: var(--accent); }
+  .sky-aim.locked .aim-track { stroke: var(--border); }
+  .sky-aim-text { position: fixed; left: 0; right: 0; top: calc(50% + 36px); text-align: center; font-size: 13px; color: var(--text-dim);
     pointer-events: none; z-index: 1; text-shadow: 0 1px 4px var(--bg-black); padding: 0 24px; }
 
   /* ===== ПОДСКАЗКА ===== */
@@ -101,13 +142,20 @@
 
   /* ===== КАРТОЧКА ПЛАНЕТЫ ===== */
   .sky-card { position: fixed; left: 10px; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 3; max-width: 460px; margin: 0 auto;
-    background: var(--card-solid); border: 1px solid var(--modal-border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px;
+    max-height: 58vh; overflow-y: auto; overscroll-behavior: contain;
+    background: var(--card-solid); border: 1px solid var(--modal-border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 7px;
     animation: pop .2s ease; touch-action: pan-y; }
   .sky-card[hidden] { display: none; }
   @keyframes pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-  .sky-card-head { display: flex; align-items: center; gap: 10px; }
-  .sky-card-head i { font-style: normal; font-family: var(--glyph-font); color: var(--accent); font-size: 22px; }
-  .sky-card-head b { flex: 1; font-size: 17px; }
+  .sky-card-head { display: flex; align-items: center; gap: 12px; }
+  .sky-pic { flex: 0 0 76px; width: 76px; height: 76px; }
+  .sky-pic svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .sky-card-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .sky-card-title b { font-size: 18px; }
+  .sky-card-title small { font-size: 13px; color: var(--text-dim); }
+  .sky-card-title i { font-style: normal; font-family: var(--glyph-font); color: var(--accent); }
+  .sky-fact { font-size: 14px; color: var(--text); line-height: 1.45; }
+  .sky-astro { font-size: 13.5px; color: var(--periwinkle); line-height: 1.45; }
   .sky-card-x { width: 40px; height: 40px; border: 0; border-radius: 10px; background: none; color: var(--muted); font-size: 22px; cursor: pointer; }
   .sky-row { font-size: 14px; color: var(--text-dim); }
   .sky-row b { color: var(--text); font-weight: 600; }
@@ -125,7 +173,11 @@
   <button class="sky-mode" id="mode" type="button">Пальцем</button>
 </header>
 <p class="sky-hint" id="hint" aria-live="polite"></p>
-<div class="sky-aim" aria-hidden="true"></div>
+<svg class="sky-aim" id="aim-ring" viewBox="0 0 60 60" aria-hidden="true">
+  <circle class="aim-ring" cx="30" cy="30" r="17"/>
+  <circle class="aim-track" cx="30" cy="30" r="25"/>
+  <circle class="aim-fill" id="aim-fill" cx="30" cy="30" r="25" stroke-dasharray="157.08" stroke-dashoffset="157.08"/>
+</svg>
 <p class="sky-aim-text" id="aim" aria-live="polite"></p>
 <nav class="sky-bodies" id="bodies" aria-label="Найти планету"></nav>
 <section class="sky-card" id="card" hidden aria-live="polite"></section>
@@ -141,6 +193,22 @@
   // зодиакальные созвездия — плюс Змееносец: эклиптика проходит и через него
   const ZODIAC_CONS = new Set(['Ari','Tau','Gem','Cnc','Leo','Vir','Lib','Sco','Sgr','Cap','Aqr','Psc','Oph']);
   const POINTS = ['С','СВ','В','ЮВ','Ю','ЮЗ','З','СЗ'];
+  const POINT_WORDS = ['на севере','на северо-востоке','на востоке','на юго-востоке','на юге','на юго-западе','на западе','на северо-западе'];
+  const sideWord = az => POINT_WORDS[Math.round(az / 45) % 8];
+  // для карточки: факт о теле (проверяемый) и что оно значит в астрологии
+  const INFO = {
+    sun:     { fact: 'Звезда, вокруг которой летит Земля. В неё поместилось бы больше миллиона Земель.', astro: 'В астрологии — воля и жизненная сила: то, ради чего вы стараетесь.' },
+    moon:    { fact: 'Спутник Земли. Всегда повёрнута к нам одной стороной и светится отражённым светом Солнца.', astro: 'В астрологии — настроение и чувства, ощущение дома и безопасности.' },
+    mercury: { fact: 'Самая маленькая планета и ближайшая к Солнцу: год на ней длится 88 земных суток.', astro: 'В астрологии — мысли, разговоры, договорённости и дороги.' },
+    venus:   { fact: 'Самая яркая точка неба после Луны. Под её облаками жара больше 460 °C.', astro: 'В астрологии — любовь, удовольствие, красота и деньги.' },
+    mars:    { fact: 'Красный из-за ржавчины — оксида железа в грунте. Сутки там почти как наши: 24 часа 37 минут.', astro: 'В астрологии — энергия и решительность, а ещё спешка и споры.' },
+    jupiter: { fact: 'Самая большая планета: в неё поместилось бы больше 1 300 Земель. Красное пятно — шторм крупнее Земли.', astro: 'В астрологии — рост, удача и новые возможности.' },
+    saturn:  { fact: 'Кольца — из льда и камней: шириной в сотни тысяч километров, а толщиной местами всего десятки метров.', astro: 'В астрологии — порядок, сроки и ответственность.' },
+    uranus:  { fact: 'Лежит на боку: ось наклонена на 98°, и каждый полюс по 42 года смотрит на Солнце. Глазом виден на пределе, только в тёмном небе.', astro: 'В астрологии — перемены, свобода и неожиданности.' },
+    neptune: { fact: 'Самые сильные ветры в Солнечной системе — до 2 000 км/ч. Его сначала вычислили на бумаге, потом нашли в телескоп, в 1846 году. Глазом не виден.', astro: 'В астрологии — мечты, вдохновение и чуткость.' },
+    pluto:   { fact: 'Карликовая планета, меньше Луны. Год на нём длится 248 земных лет. Глазом не виден.', astro: 'В астрологии — глубокие перемены, сила и контроль.' },
+  };
+  const HER = { moon: 1, venus: 1 };   // «до неё» / «до него»
   const FE0E = '︎';
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
@@ -156,7 +224,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* без памяти — без запоминания */ } }
   };
   const el = id => document.getElementById(id);
-  const ui = { canvas: el('sky'), place: el('place'), mode: el('mode'), hint: el('hint'), aim: el('aim'), bodies: el('bodies'), card: el('card') };
+  const ui = { canvas: el('sky'), place: el('place'), mode: el('mode'), hint: el('hint'), aim: el('aim'), bodies: el('bodies'), card: el('card'),
+    ring: el('aim-ring'), ringFill: el('aim-fill') };
   const ctx = ui.canvas.getContext('2d');
 
   /* ===== СТАТИСТИКА =====
@@ -173,10 +242,24 @@
   /* ===== МЕСТО: GPS ===== */
   const PLACE_KEY = 'astrolab_sky_place';
   let place = store.get(PLACE_KEY);           // { lat, lon, at, source }
+  // Место — ближайшим городом из справочника (cities.json), без координат:
+  // градусы ничего не говорят и только сбивают. Справочник — тот же, что
+  // у ввода места рождения, лежит в приложении, интернет не нужен.
+  let cities = null;
+  fetch('cities.json').then(r => r.json()).then(j => { cities = j.rows; showPlace(); }).catch(() => { cities = []; showPlace(); });
+  function nearestCity(lat, lon) {
+    let best = null, d0 = Infinity;
+    const k = Math.cos(lat * D2R);
+    for (const r of cities || []) { const dy = r[3] - lat, dx = (r[4] - lon) * k, d = dx * dx + dy * dy; if (d < d0) { d0 = d; best = r; } }
+    return best && { name: best[0], km: Math.sqrt(d0) * 111.2 };
+  }
   function showPlace() {
     if (!place) { ui.place.textContent = 'Место не определено'; return; }
-    const src = place.source === 'gps' ? '' : place.source === 'birth' ? ' · место рождения' : '';
-    ui.place.textContent = `${Math.abs(place.lat).toFixed(1)}° ${place.lat >= 0 ? 'с.ш.' : 'ю.ш.'}, ${Math.abs(place.lon).toFixed(1)}° ${place.lon >= 0 ? 'в.д.' : 'з.д.'}${src}`;
+    if (place.source === 'default') { ui.place.textContent = 'Москва — место не определено'; return; }
+    const src = place.source === 'birth' ? ' · место рождения' : '';
+    if (!cities) { ui.place.textContent = 'Определяем место…'; return; }
+    const c = nearestCity(place.lat, place.lon);
+    ui.place.textContent = (c ? (c.km < 30 ? c.name : `${Math.round(c.km)} км от: ${c.name}`) : 'Ваше место') + src;
   }
   function locate() {
     if (!navigator.geolocation) return fallbackPlace();
@@ -422,6 +505,7 @@
     drawGround();
     drawBodies();
     drawTarget();
+    updateDwell();
     updateAim();
   }
 
@@ -541,7 +625,8 @@
       ctx.strokeStyle = b.id === 'sun' ? COL.sun : b.id === 'moon' ? COL.moon : COL.planet; ctx.lineWidth = selected === b.id ? 2.5 : 1.3; ctx.stroke();
       ctx.fillStyle = b.id === 'sun' ? COL.sun : b.id === 'moon' ? COL.moon : COL.planet;
       ctx.font = (big ? 17 : 14) + 'px ' + C('--glyph-font'); ctx.fillText(GLYPH[b.id] + FE0E, P.x, P.y + 1);
-      ctx.font = '11px ' + C('--font'); ctx.fillStyle = COL.dim; ctx.fillText(NAMES[b.id], P.x, P.y + r + 9);
+      // имя планеты в прицеле — в строке под кольцом, внутри кольца оно мешает
+      if (dwell.id !== b.id) { ctx.font = '11px ' + C('--font'); ctx.fillStyle = COL.dim; ctx.fillText(NAMES[b.id], P.x, P.y + r + 9); }
       ctx.globalAlpha = 1;
     }
   }
@@ -564,20 +649,42 @@
     ctx.fillText(NAMES[b.id], x - Math.cos(ang) * 26, y - Math.sin(ang) * 26);
   }
 
-  /* ===== «ПЕРЕД ВАМИ» ===== */
+  /* ===== ПРИЦЕЛ: ЗАДЕРЖАТЬ ПЛАНЕТУ 3 СЕКУНДЫ =====
+     Ближайшая к центру планета ловится, когда входит в кольцо (30 px), и
+     отпускается, только выйдя из большего круга (46 px): дрожь компаса не
+     сбивает отсчёт. Короткий выход — до 0,35 с — тоже прощается. */
+  const DWELL_MS = 3000, AIM_IN = 30, AIM_OUT = 46, AIM_GRACE = 350, RING_LEN = 157.08;
+  let dwell = { id: null, start: 0, lostAt: 0, done: false };
+  function updateDwell() {
+    const now = performance.now(), cx = W / 2, cy = H / 2;
+    let cand = null, dmin = Infinity;
+    for (const b of frame.bodies) { if (!b.screen) continue; const d = Math.hypot(b.screen.x - cx, b.screen.y - cy); if (d < dmin) { dmin = d; cand = b; } }
+    if (dwell.id && cand && cand.id === dwell.id && dmin < AIM_OUT) dwell.lostAt = 0;
+    else if (cand && dmin < AIM_IN) dwell = { id: cand.id, start: now, lostAt: 0, done: false };
+    else if (dwell.id) {
+      if (!dwell.lostAt) dwell.lostAt = now;
+      else if (now - dwell.lostAt > AIM_GRACE) dwell = { id: null, start: 0, lostAt: 0, done: false };
+    }
+    const held = dwell.id && !dwell.lostAt;
+    const p = !dwell.id ? 0 : dwell.done ? 1 : Math.min(1, (now - dwell.start) / DWELL_MS);
+    ui.ring.classList.toggle('locked', !!dwell.id);
+    ui.ringFill.style.strokeDashoffset = String(RING_LEN * (1 - p));
+    if (held && p >= 1 && !dwell.done) { dwell.done = true; if (selected !== dwell.id) select(dwell.id); }
+  }
+
+  /* ===== «ПЕРЕД ВАМИ» ===== словами, без градусов */
   let lastAim = 0;
   function updateAim() {
     if (Date.now() - lastAim < 300) return; lastAim = Date.now();
     const v = viewDir();
-    let near = null, best = 6;
-    for (const b of frame.bodies) { const d = Math.acos(Math.max(-1, Math.min(1, b.v[0] * v.E + b.v[1] * v.N + b.v[2] * v.U))) * R2D; if (d < best) { best = d; near = NAMES[b.id]; } }
     const [ra, dec] = raDecOf(v.E, v.N, v.U, frame.lst, frame.sP, frame.cP);
     const con = constellationAt(ra, dec);
-    const side = POINTS[Math.round(v.az / 45) % 8];
     const parts = [];
-    if (near) parts.push(near);
+    if (dwell.id) parts.push(NAMES[dwell.id]);
     if (con) parts.push('созвездие ' + con.ru);
-    ui.aim.textContent = (parts.length ? parts.join(' · ') + ' — ' : '') + `${side}, ${Math.round(v.az)}°, высота ${Math.round(v.alt)}°` + (v.alt < 0 ? ' (под горизонтом)' : '');
+    const where = sideWord(v.az) + (v.alt < 0 ? ', под горизонтом' : '');
+    const holding = dwell.id && !dwell.done && !dwell.lostAt ? ' · держите…' : '';
+    ui.aim.textContent = (parts.length ? parts.join(' · ') + ' — ' : '') + where + holding;
   }
 
   /* ===== ПЛАНЕТЫ: СПИСОК И КАРТОЧКА ===== */
@@ -602,6 +709,88 @@
     }
     return null;
   }
+  /* ===== КАРТОЧКА: РИСУНОК, ФАКТ, РАССТОЯНИЕ ===== */
+  const AU_KM = 149597870.7, AU_LIGHT_S = 499.005;
+  // фаза Луны — по разнице долгот Луны и Солнца (элонгации)
+  const PHASES = ['новолуние', 'растущий серп', 'первая четверть', 'растущая Луна', 'полнолуние', 'убывающая Луна', 'последняя четверть', 'убывающий серп'];
+  function moonPhase() {
+    const m = frame.bodies.find(x => x.id === 'moon'), s = frame.bodies.find(x => x.id === 'sun');
+    if (!m || !s) return null;
+    const e = ((m.lon - s.lon) % 360 + 360) % 360;
+    return { e, lit: (1 - Math.cos(e * D2R)) / 2, name: PHASES[Math.round(e / 45) % 8] };
+  }
+  function distanceLine(id, au) {
+    const km = au * AU_KM, sec = au * AU_LIGHT_S;
+    const dist = km >= 1e9 ? `${(km / 1e9).toFixed(2).replace('.', ',')} млрд км` : km >= 1e6 ? `${Math.round(km / 1e6).toLocaleString('ru-RU')} млн км` : `${(Math.round(km / 100) * 100).toLocaleString('ru-RU')} км`;
+    const mins = Math.round(sec / 60), hrs = Math.floor(mins / 60);
+    const light = sec < 60 ? `${sec.toFixed(1).replace('.', ',')} секунды` : mins < 60 ? `${mins} мин` : `${hrs} ч${mins % 60 ? ` ${mins % 60} мин` : ''}`;
+    return `Сейчас до ${HER[id] ? 'неё' : 'него'} <b>${dist}</b>: свет, который вы видите, вышел оттуда ${light} назад.`;
+  }
+
+  // Рисунки — инлайн-SVG по мотивам фотографий: диск, полосы, кольца,
+  // затемнение к краю. У Луны настоящая фаза на сейчас.
+  const fillOf = v => `style="fill:var(${v})"`;
+  function shade(id) {
+    return `<radialGradient id="sh-${id}" cx=".38" cy=".34" r=".72"><stop offset=".55" style="stop-color:var(--pl-shade);stop-opacity:0"/><stop offset="1" style="stop-color:var(--pl-shade);stop-opacity:.6"/></radialGradient>`;
+  }
+  function planetSVG(id) {
+    const disc = (r, v) => `<circle r="${r}" ${fillOf(v)}/>`;
+    const clip = (r, inner) => `<clipPath id="cl-${id}"><circle r="${r}"/></clipPath><g clip-path="url(#cl-${id})">${inner}</g>`;
+    const shadeOver = r => `<circle r="${r}" fill="url(#sh-${id})"/>`;
+    let defs = shade(id), body = '';
+    switch (id) {
+      case 'sun':
+        defs = `<radialGradient id="g-sun"><stop offset="0" style="stop-color:var(--pl-sun-core)"/><stop offset=".7" style="stop-color:var(--pl-sun)"/><stop offset="1" style="stop-color:var(--pl-sun-edge)"/></radialGradient>`
+          + `<radialGradient id="g-glow"><stop offset=".5" style="stop-color:var(--pl-sun);stop-opacity:.45"/><stop offset="1" style="stop-color:var(--pl-sun);stop-opacity:0"/></radialGradient>`;
+        body = `<circle r="50" fill="url(#g-glow)"/><circle r="32" fill="url(#g-sun)"/>`;
+        break;
+      case 'moon': {
+        const ph = moonPhase(), r = 34;
+        let lit = '';
+        if (ph) {
+          const rx = Math.abs(Math.cos(ph.e * D2R)) * r, waxing = ph.e < 180, crescent = ph.lit < 0.5;
+          // освещённая половина + край тени-эллипс; на убыли — зеркально
+          lit = `<path d="M0 ${-r} A${r} ${r} 0 0 1 0 ${r} A${rx.toFixed(1)} ${r} 0 0 ${crescent ? 0 : 1} 0 ${-r}Z" ${fillOf('--pl-moon')}${waxing ? '' : ' transform="scale(-1 1)"'}/>`;
+        }
+        body = disc(r, '--pl-moon-dark') + lit
+          + `<g ${fillOf('--pl-moon-crater')} opacity=".35"><circle cx="-10" cy="-12" r="7"/><circle cx="9" cy="6" r="5"/><circle cx="-4" cy="15" r="4"/><circle cx="14" cy="-14" r="3"/></g>` + shadeOver(r);
+        break;
+      }
+      case 'mercury':
+        body = disc(28, '--pl-mercury') + clip(28, `<g ${fillOf('--pl-mercury-dark')} opacity=".55"><circle cx="-9" cy="-8" r="6"/><circle cx="10" cy="4" r="4"/><circle cx="-2" cy="14" r="3.5"/><circle cx="12" cy="-12" r="2.5"/><circle cx="-16" cy="8" r="3"/></g>`) + shadeOver(28);
+        break;
+      case 'venus':
+        body = disc(32, '--pl-venus') + clip(32, `<g ${fillOf('--pl-venus-band')} opacity=".5"><ellipse cx="-4" cy="-14" rx="34" ry="5" transform="rotate(-8)"/><ellipse cx="6" cy="2" rx="34" ry="6" transform="rotate(-5)"/><ellipse cx="0" cy="18" rx="30" ry="4" transform="rotate(-10)"/></g>`) + shadeOver(32);
+        break;
+      case 'mars':
+        body = disc(30, '--pl-mars') + clip(30, `<g ${fillOf('--pl-mars-dark')} opacity=".6"><ellipse cx="-8" cy="4" rx="12" ry="6" transform="rotate(-20)"/><ellipse cx="12" cy="-6" rx="7" ry="4"/><ellipse cx="4" cy="16" rx="9" ry="4"/></g><ellipse cx="0" cy="-29" rx="13" ry="6" ${fillOf('--pl-mars-cap')}/>`) + shadeOver(30);
+        break;
+      case 'jupiter':
+        body = disc(36, '--pl-jupiter') + clip(36, `<g ${fillOf('--pl-jupiter-band')} opacity=".75"><rect x="-40" y="-24" width="80" height="5"/><rect x="-40" y="-11" width="80" height="7"/><rect x="-40" y="5" width="80" height="6"/><rect x="-40" y="19" width="80" height="4"/></g><ellipse cx="13" cy="13" rx="8" ry="4.5" ${fillOf('--pl-jupiter-spot')}/>`) + shadeOver(36);
+        break;
+      case 'saturn': {
+        const ring = `style="fill:none;stroke:var(--pl-saturn-ring)"`;
+        body = `<g transform="rotate(-16)"><ellipse rx="46" ry="12" ${ring} stroke-width="6" opacity=".9"/>`
+          + disc(24, '--pl-saturn') + clip(24, `<g ${fillOf('--pl-saturn-band')} opacity=".7"><rect x="-30" y="-12" width="60" height="4"/><rect x="-30" y="2" width="60" height="5"/></g>`) + shadeOver(24)
+          + `<path d="M-46 0A46 12 0 0 0 46 0" ${ring} stroke-width="6"/></g>`;
+        break;
+      }
+      case 'uranus': {
+        const ring = `style="fill:none;stroke:var(--pl-uranus-ring)"`;
+        body = `<g transform="rotate(8)"><ellipse rx="7" ry="44" ${ring} stroke-width="1.5" opacity=".6"/>` + disc(27, '--pl-uranus') + shadeOver(27)
+          + `<path d="M0 -44A7 44 0 0 1 0 44" ${ring} stroke-width="1.5"/></g>`;
+        break;
+      }
+      case 'neptune':
+        body = disc(27, '--pl-neptune') + clip(27, `<ellipse cx="-8" cy="6" rx="7" ry="4" ${fillOf('--pl-neptune-spot')}/><rect x="-30" y="-10" width="60" height="2" ${fillOf('--pl-uranus-ring')} opacity=".25"/>`) + shadeOver(27);
+        break;
+      case 'pluto':
+        body = disc(24, '--pl-pluto') + clip(24, `<path d="M6 16C-4 10-6 2-2-2c3-3 7-2 8 1 1-3 6-4 8-1 4 4 0 12-8 18z" ${fillOf('--pl-pluto-heart')} opacity=".85"/>`) + shadeOver(24);
+        break;
+    }
+    return `<svg viewBox="-50 -50 100 100" aria-hidden="true"><defs>${defs}</defs>${body}</svg>`;
+  }
+
   function select(id) {
     selected = id; renderChips();
     const b = frame.bodies.find(x => x.id === id); if (!b) return;
@@ -615,13 +804,24 @@
     const cusps = fc && fc.natal && fc.natal.houses ? fc.natal.houses.map(h => h.longitude) : null;
     const house = cusps ? houseOf(b.lon, cusps) : null;
     const today = fc ? [...new Set(fc.days[fc.days.length - 1].spheres.flatMap(s => s.drivers).filter(d => d.transit === id).map(d => d.text))].slice(0, 3) : [];
+    const ph = id === 'moon' ? moonPhase() : null;
+    const retro = id !== 'sun' && id !== 'moon' && b.speed < 0;
+    const where = alt < 0 ? '<b>Под горизонтом</b> — сейчас не видно' : `${alt < 12 ? 'Низко над горизонтом' : alt > 60 ? 'Высоко в небе' : 'Над горизонтом'}, ${sideWord(az)}`;
     ui.card.innerHTML = `
-      <div class="sky-card-head"><i>${GLYPH[id]}${FE0E}</i><b>${NAMES[id]}</b><button class="sky-card-x" type="button" aria-label="Закрыть">×</button></div>
-      <p class="sky-row">Знак: <b>${SIGNS[sign]}</b>, ${deg}° · на небе: <b>созвездие ${conName}</b></p>
+      <div class="sky-card-head"><span class="sky-pic">${planetSVG(id)}</span>
+        <div class="sky-card-title"><b>${NAMES[id]}</b><small><i>${GLYPH[id]}${FE0E}</i> ${SIGNS[sign]}, ${deg}°</small></div>
+        <button class="sky-card-x" type="button" aria-label="Закрыть">×</button></div>
+      <p class="sky-fact">${INFO[id].fact}</p>
+      ${ph ? `<p class="sky-row">Фаза: <b>${ph.name}</b>, освещено ${Math.round(ph.lit * 100)}%</p>` : ''}
+      ${b.dist ? `<p class="sky-row">${distanceLine(id, b.dist)}</p>` : ''}
+      ${retro ? `<p class="sky-note">Сейчас ретроград: с Земли кажется, что планета пятится по зодиаку. Это эффект обгона — как соседний поезд, который будто едет назад, когда ваш его обгоняет.</p>` : ''}
+      <p class="sky-row">${where}${house ? ` · в вашей карте — <b>${house}-й дом</b>` : ''}</p>
+      <p class="sky-row">Знак: <b>${SIGNS[sign]}</b> · на небе: <b>созвездие ${conName}</b></p>
       ${same ? '' : `<p class="sky-note">Знак и созвездие разные — это не ошибка. Знаки отсчитываются от точки весеннего равноденствия, а она из-за прецессии ползёт по небу на 1° за 72 года; со времён, когда знаки совпадали с созвездиями, она ушла почти на целое созвездие.</p>`}
-      <p class="sky-row">${alt >= 0 ? `Высота <b>${Math.round(alt)}°</b>, ${POINTS[Math.round(az / 45) % 8]} (${Math.round(az)}°)` : `<b>Под горизонтом</b> — сейчас не видно`}${house ? ` · в вашей карте — <b>${house}-й дом</b>` : ''}</p>
+      <p class="sky-astro">${INFO[id].astro}</p>
       ${today.length ? `<p class="sky-row">Сегодня:</p>${today.map(t => `<p class="sky-today">${t}</p>`).join('')}` : ''}`;
     ui.card.hidden = false;
+    ui.card.scrollTop = 0;
     ui.card.querySelector('.sky-card-x').addEventListener('click', closeCard);
   }
 
@@ -642,6 +842,12 @@
   setInterval(askPlanets, 60000);
   setInterval(refreshFrames, 5000);
   setTimeout(() => chooseMode(true), 1500);
+  // про прицел — один раз, после подсказки о датчиках
+  setTimeout(() => {
+    if (store.get('astrolab_sky_aim_hint')) return;
+    say('Наведите прицел на планету и подержите — через 3 секунды откроется её карточка.', 8000);
+    store.set('astrolab_sky_aim_hint', true);
+  }, 11000);
   if (!engine) say('Планеты считаются только в приложении.', 8000);
   requestAnimationFrame(draw);
   // для проверки в браузере без датчиков: ?az=…&alt=…

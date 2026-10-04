@@ -17,7 +17,10 @@ import com.getcapacitor.annotation.PermissionCallback;
  *
  *   status()  → { sensor, permission }                         — без обращения к датчику
  *   request() → как today(), но сначала спрашивает разрешение
- *   today()   → { sensor, permission, steps, day, readAt, history }
+ *   today()   → { sensor, permission, steps, day, readAt, since, hours, est, history }
+ *
+ * hours — дата → 24 числа шагов по часам (последние 8 дней), est — дата →
+ * 24 флага «час посчитан оценкой», history — дата → шаги за день.
  *
  * permission: granted | denied | prompt. С Android 10 чтение счётчика шагов
  * требует разрешения «Физическая активность»; раньше его не было, и там
@@ -32,7 +35,7 @@ public class StepsPlugin extends Plugin {
 
     @Override
     public void load() {
-        // каждый запуск заново ставит полуночный будильник: после обновления
+        // каждый запуск заново ставит часовой будильник: после обновления
         // приложения или очистки памяти он мог пропасть
         StepsReceiver.schedule(getContext());
     }
@@ -65,6 +68,9 @@ public class StepsPlugin extends Plugin {
                 o.put("steps", r.steps);
                 o.put("day", r.day);
                 o.put("readAt", r.readAt);
+                o.put("since", r.since);
+                o.put("hours", r.hours);
+                o.put("est", r.est);
                 o.put("history", r.history);
             } catch (RuntimeException e) {
                 call.reject("Не удалось прочитать датчик шагов: " + e.getMessage());
