@@ -18,7 +18,12 @@
   Вместо иконки «погоды» сверху стоит колесо (wheel.html в режиме
   встраивания) с небом выбранного дня, а в его центре — фраза дня: совет
   из moon.text без приставки «Луна в N-м доме:». Тап по колесу во время
-  сборки пропускает анимацию; отдельной страницы карты в приложении нет.
+  сборки пропускает анимацию; в приложении тап по центру открывает экран
+  «Небо» (sky.html) — отдельной страницы карты нет.
+
+  Меню (кнопка в верхней строке, только в приложении): данные рождения,
+  небо, шаги за сегодня, обновление, статистика. Шаги считает телефон
+  (плагин Steps в app/android) — задел под игру «полёт к планетам».
 
   Данные — в блоке #day-data, их кладёт src/day.ts: настоящие транзиты
   за семь дней (сегодня и шесть предыдущих, вперёд не показываем).
@@ -288,10 +293,9 @@
     --btn-text:      #1A2036;
   }
   .wheel-card { width: 100%; font: inherit; text-align: left; cursor: pointer; }
-  .sky-link[hidden] { display: none; }
+  .wheel-card[hidden] { display: none; }
   .wheel-card:disabled { cursor: default; }
   .wheel-card:disabled .wheel-arrow { display: none; }
-  .wheel-update { font-size: 13px; color: var(--accent); }
   .settings {
     position: fixed; inset: 0; z-index: 20; overflow-y: auto;
     background: var(--overlay-bg); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
@@ -371,9 +375,60 @@
   .about h3 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
   .about p { font-size: 13.5px; color: var(--text-dim); }
   .update-status:empty { display: none; }
-  .chk { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: var(--text-dim); cursor: pointer; user-select: none; min-height: 44px; }
-  .chk input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
-  .stats-note { font-size: 12.5px !important; color: var(--muted) !important; margin-top: -8px; }
+
+  /* ===== ВЕРХНЯЯ СТРОКА И МЕНЮ ===== только в приложении.
+     Над шапкой — тихая марка слева и кнопка меню справа. Меню — шторка
+     снизу, под большой палец; в ней всё, что не про сегодняшний день:
+     данные рождения, небо, шаги, обновление, статистика. */
+  .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 40px; margin-bottom: -14px; position: relative; z-index: 2; }
+  .topbar[hidden] { display: none; }
+  .brand { font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); padding-left: 4px; }
+  .icon-btn {
+    width: 44px; height: 44px; margin-right: -8px; display: flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: 12px; color: var(--accent); cursor: pointer; position: relative;
+  }
+  .icon-btn svg { width: 24px; height: 24px; display: block; }
+  /* точка на кнопке — в меню есть новость: доступно обновление */
+  .icon-btn.has-dot::after { content: ''; position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+  .menu {
+    position: fixed; inset: 0; z-index: 20; display: flex; align-items: flex-end; justify-content: center;
+    background: var(--overlay-bg); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px);
+  }
+  .menu[hidden] { display: none; }
+  .menu-sheet {
+    width: 100%; max-width: 480px; max-height: calc(100% - 40px); overflow-y: auto;
+    background: var(--card-solid); border: 1px solid var(--modal-border); border-bottom: 0;
+    border-radius: 20px 20px 0 0; box-shadow: 0 -20px 60px var(--modal-shadow);
+    padding: 8px 10px calc(16px + env(safe-area-inset-bottom)); animation: rise .22s ease;
+  }
+  @keyframes rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .menu-sheet { animation: none; } }
+  .menu-grip { width: 36px; height: 4px; border-radius: 2px; background: var(--border); margin: 4px auto 10px; }
+  .menu-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 6px; }
+  .menu-head h2 { font-size: 18px; font-weight: 700; }
+  .menu-list { display: flex; flex-direction: column; }
+  .menu-item {
+    display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 8px;
+    background: none; border: 0; border-top: 1px solid var(--border); color: var(--text); font: inherit; text-align: left; cursor: pointer; text-decoration: none;
+  }
+  .menu-item:first-child { border-top: 0; }
+  .menu-item:hover, .menu-item:focus-visible { background: var(--track); outline: none; }
+  .menu-item:disabled, .menu-item.is-toggle { cursor: default; }
+  .menu-item:disabled .menu-arrow { visibility: hidden; }
+  .menu-item.is-toggle:hover { background: none; }
+  .menu-ico { flex: 0 0 28px; width: 28px; height: 28px; color: var(--accent); }
+  .menu-ico svg { width: 100%; height: 100%; display: block; }
+  .menu-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .menu-title { font-size: 15px; font-weight: 600; }
+  .menu-sub { font-size: 13px; color: var(--muted); line-height: 1.4; }
+  .menu-sub:empty { display: none; }
+  .menu-sub a { color: var(--periwinkle); }
+  .menu-arrow { color: var(--accent); font-size: 20px; }
+  .menu-check { width: 20px; height: 20px; flex: 0 0 auto; accent-color: var(--accent); cursor: pointer; }
+  .menu .about { padding: 14px 8px 0; }
+  .menu .about p { font-size: 12.5px; color: var(--muted); }
+  .menu .about a { color: var(--periwinkle); }
+  body.menu-open { overflow: hidden; }
 
   /* ===== ОБЪЯВЛЕНИЕ =====
      Карточка в стиле модалок кабинета: латунная кромка, подпись мелкими
@@ -515,6 +570,13 @@
 </svg>
 
 <main class="screen">
+  <!-- ===== ВЕРХНЯЯ СТРОКА ===== только в приложении: марка и кнопка меню -->
+  <div class="topbar" id="topbar" hidden>
+    <span class="brand">Astrolab</span>
+    <button class="icon-btn" id="menu-btn" type="button" aria-label="Меню" aria-haspopup="dialog" aria-expanded="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
   <!-- ===== ОБЪЯВЛЕНИЕ ===== только в приложении: «вышла версия», вебинар,
        новая функция. Лежит выше iframe колеса (z-index), иначе прозрачный
        край поднятого колеса перехватывал бы нажатия на кнопки. -->
@@ -553,14 +615,8 @@
 
   <p class="compute-status" id="compute-status" aria-live="polite"></p>
 
-  <!-- ===== ВХОД НА ЭКРАН «НЕБО» ===== только в приложении: нужен движок -->
-  <a class="wheel-card sky-link" id="sky-link" href="sky.html" hidden>
-    <span class="wheel-deco" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M18 15l.7 1.8 1.8.7-1.8.7L18 20l-.7-1.8-1.8-.7 1.8-.7zM5 16l.5 1.3 1.3.5-1.3.5L5 19.6l-.5-1.3-1.3-.5 1.3-.5z"/></svg></span>
-    <span class="wheel-text"><span class="wheel-title">Небо над вами</span><span class="wheel-place">Наведите телефон — планеты и созвездия</span></span>
-    <span class="wheel-arrow" aria-hidden="true">›</span>
-  </a>
-
-  <!-- ===== КАРТОЧКА «ДАННЫЕ РОЖДЕНИЯ» ===== (в приложении открывает панель) -->
+  <!-- ===== КАРТОЧКА «НАТАЛЬНАЯ КАРТА» ===== только в прототипе; в приложении
+       данные рождения — в меню, а эта карточка скрыта -->
   <button class="wheel-card" id="wheel-card" type="button">
     <span class="wheel-deco" id="wheel-deco" aria-hidden="true"></span>
     <span class="wheel-text">
@@ -606,13 +662,47 @@
         <p class="app-note">Данные рождения хранятся только в этом телефоне и никуда не отправляются.</p>
       </div>
     </form>
+  </div>
+</section>
+
+<!-- ===== МЕНЮ ===== только в приложении: всё, что не про сегодняшний день -->
+<section class="menu" id="menu" role="dialog" aria-modal="true" aria-labelledby="menu-title" hidden>
+  <div class="menu-sheet">
+    <div class="menu-grip" aria-hidden="true"></div>
+    <div class="menu-head">
+      <h2 id="menu-title">Меню</h2>
+      <button class="x-close" id="menu-close" type="button" aria-label="Закрыть">×</button>
+    </div>
+    <div class="menu-list">
+      <button class="menu-item" id="m-birth" type="button">
+        <span class="menu-ico" aria-hidden="true"><svg><use href="#i-wheel"/></svg></span>
+        <span class="menu-text"><span class="menu-title">Данные рождения</span><span class="menu-sub" id="m-birth-sub">не указаны</span></span>
+        <span class="menu-arrow" aria-hidden="true">›</span>
+      </button>
+      <a class="menu-item" id="m-sky" href="sky.html">
+        <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M18 15l.7 1.8 1.8.7-1.8.7L18 20l-.7-1.8-1.8-.7 1.8-.7zM5 16l.5 1.3 1.3.5-1.3.5L5 19.6l-.5-1.3-1.3-.5 1.3-.5z"/></svg></span>
+        <span class="menu-text"><span class="menu-title">Небо над вами</span><span class="menu-sub">Наведите телефон — планеты и созвездия. Открывается и тапом по центру круга.</span></span>
+        <span class="menu-arrow" aria-hidden="true">›</span>
+      </a>
+      <!-- шаги: пока только проверка, что телефон их считает; правила игры — потом -->
+      <button class="menu-item" id="m-steps" type="button">
+        <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3.5c1.9 0 3 2.2 3 4.8 0 1.6-.6 3-1.6 3.7H6.1C5.1 11.3 4.5 9.9 4.5 8.3c0-2.6 1.1-4.8 3-4.8z"/><path d="M6.2 13.6h2.6l.3 1.7c.1.9-.6 1.7-1.6 1.7s-1.7-.8-1.6-1.7z"/><path d="M16.5 8.5c1.9 0 3 2.2 3 4.8 0 1.6-.6 3-1.6 3.7h-2.8c-1-.7-1.6-2.1-1.6-3.7 0-2.6 1.1-4.8 3-4.8z"/><path d="M15.2 18.6h2.6l.3 1.7c.1.9-.6 1.7-1.6 1.7s-1.7-.8-1.6-1.7z"/></svg></span>
+        <span class="menu-text"><span class="menu-title">Шаги за сегодня</span><span class="menu-sub" id="m-steps-sub">—</span></span>
+        <span class="menu-arrow" aria-hidden="true">›</span>
+      </button>
+      <!-- div, а не button: в подписи может быть ссылка «Скачать», а ссылка внутри кнопки — не ссылка -->
+      <div class="menu-item" id="check-update" role="button" tabindex="0">
+        <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg></span>
+        <span class="menu-text"><span class="menu-title">Проверить обновление</span><span class="menu-sub" id="update-status" aria-live="polite"></span></span>
+        <span class="menu-arrow" aria-hidden="true">›</span>
+      </div>
+      <label class="menu-item is-toggle">
+        <span class="menu-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 20v-7M12 20V5M19 20v-10"/></svg></span>
+        <span class="menu-text"><span class="menu-title">Обезличенная статистика</span><span class="menu-sub">Какие экраны и сферы открываются и как часто — без данных рождения и без имени. Помогает понять, что улучшать.</span></span>
+        <input type="checkbox" id="stats-on" class="menu-check">
+      </label>
+    </div>
     <div class="about">
-      <h3>О приложении</h3>
-      <p>Версия <span id="app-version"></span></p>
-      <button class="btn-outline" id="check-update" type="button">Проверить обновление</button>
-      <p class="update-status" id="update-status" aria-live="polite"></p>
-      <label class="chk"><input type="checkbox" id="stats-on"> Отправлять обезличенную статистику</label>
-      <p class="stats-note">Какие экраны и сферы открываются и как часто — без данных рождения и без имени. Помогает понять, что в приложении улучшать.</p>
       <p class="app-credits">Расчёт — Swiss Ephemeris (AGPL). Города — GeoNames (CC BY 4.0). Звёзды и созвездия — d3-celestial (BSD).
         Исходный код открыт: <a href="https://github.com/AstroLab-you/astrolab-day">github.com/AstroLab-you/astrolab-day</a></p>
     </div>
@@ -737,10 +827,19 @@
     fList: document.getElementById('f-place-list'),
     fError: document.getElementById('f-error'),
     fSubmit: document.getElementById('f-submit'),
-    version: document.getElementById('app-version'),
     checkUpdate: document.getElementById('check-update'),
-    updateStatus: document.getElementById('update-status')
+    updateStatus: document.getElementById('update-status'),
+    topbar: document.getElementById('topbar'),
+    menuBtn: document.getElementById('menu-btn'),
+    menu: document.getElementById('menu'),
+    menuClose: document.getElementById('menu-close'),
+    mBirth: document.getElementById('m-birth'),
+    mBirthSub: document.getElementById('m-birth-sub'),
+    mSteps: document.getElementById('m-steps'),
+    mStepsSub: document.getElementById('m-steps-sub')
   };
+  // верхняя строка показывается до замера высоты шапки (ниже), чтобы колесо встало на место
+  el.topbar.hidden = !APP;
 
   // ===== РЕНДЕР =====
   function renderHeader(day) {
@@ -769,7 +868,8 @@
   // живёт до закрытия приложения, а не дольше.
   const RETURNING = (() => { try { return sessionStorage.getItem('astrolab_session') === '1'; } catch (e) { return false; } })();
   try { sessionStorage.setItem('astrolab_session', '1'); } catch (e) { /* без сессии — просто играем сборку */ }
-  el.wheel.src = `wheel.html?embed=1&top=${lift}${RETURNING ? '&quick' : ''}`;
+  // sky — в приложении тап по центру колеса ведёт на экран «Небо»
+  el.wheel.src = `wheel.html?embed=1&top=${lift}${RETURNING ? '&quick' : ''}${APP ? '&sky=1' : ''}`;
 
   // ===== 3-ЧАСОВЫЕ ОТРЕЗКИ =====
   // Полоса показывает отрезок, в котором мы сейчас: сегодня — текущие три
@@ -923,7 +1023,8 @@
     if (DATA && current < DATA.days.length - 1) { current++; render(); track('day.switch', { via: 'arrow', offset: dayOffset() }); }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !el.settings.hidden && profile) closeSettings();
+    if (e.key === 'Escape' && !el.menu.hidden) closeMenu();
+    else if (e.key === 'Escape' && !el.settings.hidden && profile) closeSettings();
     else if (e.key === 'Escape' && openId) toggleSphere(openId);
   });
 
@@ -933,7 +1034,7 @@
   // отменяет касание (touchcancel), и свайп не доходит до конца. Над
   // колесом касания ловит iframe — он присылает {type:'swipe'} сам.
   function swipe(dir) {
-    if (!DATA || document.body.classList.contains('settings-open')) return;
+    if (!DATA || document.body.classList.contains('settings-open') || document.body.classList.contains('menu-open')) return;
     const next = current + dir;
     if (next < 0 || next > DATA.days.length - 1) return;
     current = next; render(); slideIn(dir);
@@ -955,7 +1056,10 @@
     if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) swipe(dx < 0 ? 1 : -1);
   }, { passive: true });
   window.addEventListener('message', (e) => {
-    if (e.source === el.wheel.contentWindow && e.data && e.data.type === 'swipe') swipe(e.data.dir);
+    if (e.source !== el.wheel.contentWindow || !e.data) return;
+    if (e.data.type === 'swipe') swipe(e.data.dir);
+    // тап по центру колеса — на экран «Небо»; ему нужен движок, поэтому только в приложении
+    if (e.data.type === 'sky' && APP && DATA) location.href = 'sky.html';
   });
 
   // ===== ЗАПУСК =====
@@ -1005,8 +1109,7 @@
     return `${d} ${MONTHS_GEN[m - 1]} ${y}, ${p.time} · ${p.place.name}`;
   }
   function updateCard() {
-    el.wheelTitle.textContent = 'Данные рождения';
-    el.wheelPlace.textContent = profile ? profileLine(profile) : 'не указаны';
+    el.mBirthSub.textContent = profile ? profileLine(profile) : 'не указаны';
   }
 
   // Пока идёт расчёт: шапка уже с сегодняшней датой, полосы пустые
@@ -1070,7 +1173,59 @@
     if (toTop) window.scrollTo(0, 0);
   }
   el.settingsClose.addEventListener('click', () => closeSettings());
-  el.wheelCard.addEventListener('click', () => { if (APP) openSettings(); });
+
+  // ===== МЕНЮ =====
+  let menuFocus = null;
+  function openMenu() {
+    menuFocus = document.activeElement;
+    el.menu.hidden = false; document.body.classList.add('menu-open');
+    el.menuBtn.setAttribute('aria-expanded', 'true');
+    el.menuClose.focus();
+    refreshSteps(false);
+  }
+  function closeMenu() {
+    el.menu.hidden = true; document.body.classList.remove('menu-open');
+    el.menuBtn.setAttribute('aria-expanded', 'false');
+    if (menuFocus) menuFocus.focus({ preventScroll: true });
+  }
+  el.menuBtn.addEventListener('click', openMenu);
+  el.menuClose.addEventListener('click', closeMenu);
+  el.menu.addEventListener('click', (e) => { if (e.target === el.menu) closeMenu(); });   // тап по затемнению
+  el.mBirth.addEventListener('click', () => { closeMenu(); openSettings(); });
+
+  // ===== ШАГИ =====
+  // Считает телефон: датчик копит шаги сам, плагин Steps (app/android)
+  // читает его при открытии меню и держит границу суток. Задел под игру
+  // «полёт к планетам» — правил пока нет, проверяем, что счёт идёт.
+  // Шаги остаются в телефоне, в статистику не уходят.
+  const Steps = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Steps) || null;
+  const STEPS_SINCE_KEY = 'astrolab_steps_since';   // когда счёт начался: первый день неполный
+  const stepsWord = n => { const a = n % 10, b = n % 100; return (b >= 11 && b <= 19) ? 'шагов' : a === 1 ? 'шаг' : (a >= 2 && a <= 4) ? 'шага' : 'шагов'; };
+  const localYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  function showSteps(r) {
+    el.mSteps.disabled = false;
+    if (!r.sensor) { el.mStepsSub.textContent = 'В этом телефоне нет счётчика шагов.'; el.mSteps.disabled = true; return; }
+    if (r.permission !== 'granted') {
+      el.mStepsSub.textContent = r.permission === 'denied'
+        ? 'Доступ закрыт. Разрешите «Физическую активность» в настройках приложения.'
+        : 'Нажмите, чтобы разрешить доступ к счётчику шагов.';
+      return;
+    }
+    let since = store.get(STEPS_SINCE_KEY);
+    if (!since) { since = r.readAt; store.set(STEPS_SINCE_KEY, since); }
+    const parts = [`${r.steps.toLocaleString('ru-RU')} ${stepsWord(r.steps)}`];
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    if (r.history && r.history[localYmd(y)] != null) parts.push(`вчера ${(+r.history[localYmd(y)]).toLocaleString('ru-RU')}`);
+    if (localYmd(new Date(since)) === r.day) parts.push(`счёт идёт с ${new Date(since).toTimeString().slice(0, 5)}`);
+    el.mStepsSub.textContent = parts.join(' · ');
+  }
+  async function refreshSteps(ask) {
+    if (!Steps) { el.mStepsSub.textContent = 'Шаги считаются только в приложении.'; el.mSteps.disabled = true; return; }
+    el.mStepsSub.textContent = 'Читаю датчик…';
+    try { showSteps(await (ask ? Steps.request() : Steps.today())); }
+    catch (e) { el.mStepsSub.textContent = 'Не удалось прочитать датчик: ' + ((e && e.message) || e); }
+  }
+  el.mSteps.addEventListener('click', () => refreshSteps(true));
 
   // ===== ПОИСК МЕСТА =====
   // cities.json — выжимка GeoNames (src/build-cities.ts): 43 тыс. мест,
@@ -1163,7 +1318,7 @@
     return false;
   };
   async function checkUpdate(silent) {
-    if (!silent) { el.updateStatus.textContent = 'Проверяю…'; el.checkUpdate.disabled = true; }
+    if (!silent) { el.updateStatus.textContent = `Версия ${APP_VERSION}. Проверяю…`; el.checkUpdate.setAttribute('aria-busy', 'true'); }
     try {
       const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
       if (r.status === 404) { if (!silent) { el.updateStatus.textContent = 'Опубликованных версий пока нет.'; track('update.check', { result: 'none' }); } return; }
@@ -1173,19 +1328,20 @@
       if (apk && newer(latest, APP_VERSION)) {
         el.updateStatus.innerHTML = `Доступна версия ${latest}. <a href="${apk.browser_download_url}">Скачать</a> — когда файл загрузится, откройте его и нажмите «Обновить».`;
         el.updateStatus.querySelector('a').addEventListener('click', () => { track('update.download', { to: latest }); flush(true); });
-        if (!el.wheelCard.querySelector('.wheel-update'))
-          el.wheelCard.querySelector('.wheel-text').insertAdjacentHTML('beforeend', `<span class="wheel-update">Доступно обновление ${latest}</span>`);
+        el.menuBtn.classList.add('has-dot');   // точка на кнопке меню: внутри ссылка на новую версию
         // и карточкой сверху — её можно скрыть, тогда до следующей версии не всплывёт
         offerNotice({ key: 'v' + latest, kicker: 'Новая версия', title: `Вышла версия ${latest}`,
           body: 'Скачайте и откройте файл — приложение обновится, ваши данные сохранятся.',
           linkUrl: apk.browser_download_url, linkLabel: 'Скачать', onOpen: () => track('update.download', { to: latest }) });
         if (!silent) track('update.check', { result: 'available' });
-      } else if (!silent) { el.updateStatus.textContent = `У вас последняя версия.`; track('update.check', { result: 'latest' }); }
+      } else if (!silent) { el.updateStatus.textContent = `Версия ${APP_VERSION} — последняя.`; track('update.check', { result: 'latest' }); }
     } catch (e) {
-      if (!silent) { el.updateStatus.textContent = 'Нет связи с GitHub. Проверьте интернет и попробуйте ещё раз.'; track('update.check', { result: 'offline' }); }
-    } finally { el.checkUpdate.disabled = false; }
+      if (!silent) { el.updateStatus.textContent = `Версия ${APP_VERSION}. Нет связи с GitHub — проверьте интернет и попробуйте ещё раз.`; track('update.check', { result: 'offline' }); }
+    } finally { el.checkUpdate.removeAttribute('aria-busy'); }
   }
-  el.checkUpdate.addEventListener('click', () => checkUpdate(false));
+  // пункт меню — div с ролью кнопки: ссылка «Скачать» внутри должна оставаться ссылкой
+  el.checkUpdate.addEventListener('click', (e) => { if (!e.target.closest('a')) checkUpdate(false); });
+  el.checkUpdate.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); checkUpdate(false); } });
 
   // ===== СТАТИСТИКА ИСПОЛЬЗОВАНИЯ =====
   // Что открывают и как часто — на наш сервер в Москве (backend, модуль app).
@@ -1309,8 +1465,8 @@
   }
 
   if (APP) {
-    el.version.textContent = APP_VERSION;
-    document.getElementById('sky-link').hidden = false;
+    el.updateStatus.textContent = `Версия ${APP_VERSION}`;
+    el.wheelCard.hidden = true;   // данные рождения — в меню
     // возврат с «Неба» — не новое открытие приложения
     if (!RETURNING) track('app.open');
     flush(); loadFeed();

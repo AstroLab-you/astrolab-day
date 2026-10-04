@@ -25,6 +25,14 @@
 
         </activity>
 
+        <!-- Шаги: будильник после полуночи закрывает день показанием датчика,
+             а после перезагрузки будильник ставится заново (StepsReceiver) -->
+        <receiver android:name=".StepsReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -44,4 +52,10 @@
          Capacitor запрашивает оба разрешения сразу. Место остаётся в телефоне. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Шаги за день (задел под игру «полёт к планетам»): счётчик шагов
+         телефона, с Android 10 — за разрешением «Физическая активность».
+         Шаги остаются в телефоне. Без датчика приложение работает как раньше. -->
+    <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

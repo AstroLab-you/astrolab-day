@@ -21,7 +21,9 @@
   Режим встраивания: wheel.html?embed=1#c=<текст> — только круг, без
   кнопок, карточки и списка; в центре вместо подписи карты — фраза дня
   из адреса после #c=. Так круг стоит на экране дня (day.html): текст
-  меняется сообщениями без перезагрузки. Параметр ?top=N — отступ сверху:
+  меняется сообщениями без перезагрузки. С ?sky=1 (приложение) под фразой
+  подпись «небо над вами», тап по центру шлёт родителю {type:'sky'}.
+  Параметр ?top=N — отступ сверху:
   экран дня поднимает iframe под шапку, чтобы падающие слои не обрезались.
 
   Внешних ресурсов нет: страница открывается двойным кликом.
@@ -107,6 +109,8 @@
   .w-center-title { fill:var(--text); font-family:var(--serif-font); font-size:20px; text-anchor:middle; dominant-baseline:central; }
   .w-center-date { fill:var(--text-dim); font-size:13px; text-anchor:middle; dominant-baseline:central; }
   .w-center-place { fill:var(--text-dim); font-size:11px; letter-spacing:1.5px; text-transform:uppercase; text-anchor:middle; dominant-baseline:central; }
+  /* подпись-вход на экран «Небо» внизу центра (только во встраивании в приложение) */
+  .w-center-cta { fill:var(--accent); font-size:18px; letter-spacing:1px; text-anchor:middle; dominant-baseline:central; opacity:.9; cursor:pointer; }
   .w-center-diamond { fill:var(--accent); }
   .w-center-line { stroke:var(--accent); stroke-width:0.8; }
   .is-dim { opacity:0.22 !important; }
@@ -160,6 +164,8 @@
   .wheel-stack > svg { position:absolute; inset:0; width:100%; height:auto; pointer-events:none; }
   .wheel-stack > svg#wheel-svg { position:relative; }
   .wheel-stack .w-sign-sector, .wheel-stack .w-house-num-hit, .wheel-stack .w-aspect-hit, .wheel-stack .w-body { pointer-events:auto; }
+  /* во встраивании центр ловит тап — вход на экран «Небо» */
+  .is-embed .wheel-stack .w-center, .is-embed .wheel-stack .w-center-text-box, .is-embed .wheel-stack .w-center-cta { pointer-events:auto; }
   @media (prefers-reduced-motion: reduce) {
     .chip, .w-body, .w-aspect, .wl-row { transition:none !important; }
   }
@@ -203,6 +209,8 @@
     const EMBED = new URLSearchParams(location.search).has('embed');
     // quick: вернулись с другого экрана приложения — сборку уже видели, сразу итог
     const QUICK = new URLSearchParams(location.search).has('quick');
+    // sky: родитель — приложение, тап по центру ведёт на экран «Небо»
+    const SKY = EMBED && new URLSearchParams(location.search).has('sky');
     if(EMBED){
       document.body.classList.add('is-embed');
       // экран дня поднимает iframe под свою шапку, чтобы слои, падающие
@@ -387,15 +395,22 @@
         const [gx,gy]=pol(n.lon,R_ASP-15); const t=el('text',{x:gx,y:gy,class:'w-natal-glyph'},g); t.textContent=GLYPH[n.id];
       });
       /* центр поверх хорд */
-      el('circle',{cx,cy,r:R_CENTER,class:'w-center'},svg);
+      const center=el('circle',{cx,cy,r:R_CENTER,class:'w-center'},svg);
       if(EMBED){
         // фраза дня переносится по словам — в svg-тексте переносов нет,
-        // поэтому HTML внутри foreignObject; квадрат вписан в круг
-        const side=R_CENTER*1.42;
-        const fo=el('foreignObject',{x:cx-side/2,y:cy-side/2,width:side,height:side,class:'w-center-text-box'},svg);
+        // поэтому HTML внутри foreignObject; квадрат вписан в круг. С подписью
+        // «небо над вами» внизу круга квадрат укорочен снизу — фраза чуть выше
+        const side=R_CENTER*1.42, h=SKY?side-22:side;
+        const fo=el('foreignObject',{x:cx-side/2,y:cy-side/2,width:side,height:h,class:'w-center-text-box'},svg);
         const div=document.createElementNS('http://www.w3.org/1999/xhtml','div');
         div.className='w-center-text'; fo.appendChild(div);
         setCenterText(centerText);
+        if(SKY){
+          const cta=el('text',{x:cx,y:cy+R_CENTER-34,class:'w-center-cta'},svg); cta.textContent='небо над вами ›';
+          // тап, который пропустил сборку, не должен тут же увести на «Небо»
+          const toSky=e=>{ e.stopPropagation(); if(introAnim || performance.now()-introSkippedAt<700) return; parent.postMessage({type:'sky'},'*'); };
+          [center,fo,cta].forEach(n=>n.addEventListener('click',toSky));
+        }
       } else {
       el('polygon',{points:`${cx},${cy-38} ${cx+3.5},${cy-34.5} ${cx},${cy-31} ${cx-3.5},${cy-34.5}`,class:'w-center-diamond'},svg);
       const t1=el('text',{x:cx,y:cy-12,class:'w-center-title'},svg); t1.textContent=data.display.title;
@@ -563,8 +578,9 @@
     // Пропуск анимации — на неподвижном родителе: повёрнутая в 3D стопка
     // проецируется не туда, где лежит её прямоугольник, и тап мимо неё
     // до обработчика на самой стопке не доходит
+    let introSkippedAt=-1e9;
     document.querySelector('.wheel-stage').addEventListener('pointerdown',()=>{
-      if(introAnim) introAnim.forEach(a=>a.finish());
+      if(introAnim){ introAnim.forEach(a=>a.finish()); introSkippedAt=performance.now(); }
     });
     document.addEventListener('keydown',e=>{if(e.key==='Escape')clearSel();});
 
@@ -591,7 +607,7 @@
       move('.w-house-cusp, .w-house-num, .w-house-num-hit', layers.houses);
       move('.w-axis, .w-axis-label, .w-axis-arrow', layers.axes);
       move('.w-aspect, .w-aspect-hit, .w-natal', layers.aspects);
-      move('.w-center, .w-center-text-box, .w-center-title, .w-center-date, .w-center-place, .w-center-diamond, .w-center-line', layers.center);
+      move('.w-center, .w-center-text-box, .w-center-cta, .w-center-title, .w-center-date, .w-center-place, .w-center-diamond, .w-center-line', layers.center);
       move('.w-body', layers.bodies);
     }
 
