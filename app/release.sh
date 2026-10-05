@@ -10,6 +10,8 @@
 #    не попадает: только снимки по версиям.
 # 3. Создаёт релиз v<версия> с APK — его находит кнопка «Проверить
 #    обновление» в приложении.
+# 4. Собирает ту же версию для RuStore (dist/…-rustore.apk) — её загружают
+#    в консоль RuStore.
 #
 # Незакоммиченные правки в tools/natal-calc — отказ: иначе исходники
 # в релизе разойдутся со сборкой.
@@ -43,3 +45,8 @@ git -C "$PUB" -c user.name="$(git config user.name)" -c user.email="$(git config
 git -C "$PUB" push -q origin HEAD:main
 gh release create "v$VERSION" "$APK" --repo "$REPO" --title "Версия $VERSION" --notes "$NOTES" --target "$(git -C "$PUB" rev-parse HEAD)"
 echo "Готово: https://github.com/$REPO/releases/tag/v$VERSION (исходники из $SRC_SHA)"
+
+# та же версия для RuStore: без ссылок на APK со стороны, обновляет магазин.
+# Загружается в консоль RuStore (Приложения → Astrolab → Загрузить версию):
+# версия в RuStore не должна отставать от GitHub — правило магазина
+CHANNEL=rustore ./build.sh

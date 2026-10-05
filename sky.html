@@ -230,9 +230,9 @@
 
   /* ===== СТАТИСТИКА =====
      Та же очередь, что у экрана дня (astrolab_events): отправит её экран
-     дня при следующем открытии. Выключенная статистика — не пишем. */
+     дня при следующем открытии. Без согласия — не пишем. */
   function track(name, props) {
-    if (store.get('astrolab_stats_off')) return;
+    if (store.get('astrolab_stats_consent') !== true) return;   // только с согласия, его спрашивает экран дня
     const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
     const q = store.get('astrolab_events') || [];
     q.push({ id, name, at: new Date().toISOString(), ...(props ? { props } : {}) });

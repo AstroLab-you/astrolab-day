@@ -537,6 +537,8 @@
   .update-status a { color: var(--accent); }
   .app-credits { font-size: 12px !important; color: var(--muted) !important; }
   .app-credits a { color: inherit; }
+  .app-docs { font-size: 12.5px !important; line-height: 1.7; }
+  .app-docs a { color: var(--periwinkle); }
   /* пока идёт расчёт: полосы пустые, вместо чисел — многоточие */
   .is-computing .sphere-value { color: var(--muted); }
   .compute-status { text-align: center; font-size: 14px; color: var(--muted); }
@@ -675,6 +677,16 @@
       <button class="notice-close" id="notice-close" type="button">Скрыть</button>
     </div>
   </aside>
+  <!-- ===== СОГЛАСИЕ НА СТАТИСТИКУ ===== только в приложении, один раз -->
+  <aside class="notice" id="consent" hidden aria-live="polite">
+    <div class="notice-kicker">По желанию</div>
+    <b class="notice-title">Помочь сделать приложение лучше?</b>
+    <p class="notice-body">Можно отправлять нам обезличенную статистику: какие экраны и сферы открываются и как часто. Без данных рождения, имени и шагов. Ответ можно поменять в меню.</p>
+    <div class="notice-actions">
+      <button class="btn-primary notice-link" id="consent-yes" type="button">Отправлять</button>
+      <button class="notice-close" id="consent-no" type="button">Не отправлять</button>
+    </div>
+  </aside>
   <!-- ===== ШАПКА ДНЯ ===== -->
   <header class="day-head">
     <button class="nav-arrow" id="prev-day" aria-label="Предыдущий день">‹</button>
@@ -805,6 +817,8 @@
       </label>
     </div>
     <div class="about">
+      <!-- документы — на сайте; их требует и соглашение RuStore: политика, соглашение, сведения о разработчике -->
+      <p class="app-docs"><a href="https://astrolab.you/privacy.html">Политика конфиденциальности</a> · <a href="https://astrolab.you/agreement.html">Пользовательское соглашение</a> · <a href="https://astrolab.you/contacts.html">Сведения о разработчике</a></p>
       <p class="app-credits">Расчёт — Swiss Ephemeris (AGPL). Города — GeoNames (CC BY 4.0). Звёзды и созвездия — d3-celestial (BSD).
         Исходный код открыт: <a href="https://github.com/AstroLab-you/astrolab-day">github.com/AstroLab-you/astrolab-day</a></p>
     </div>
@@ -1206,6 +1220,12 @@
   // ===== ПРИЛОЖЕНИЕ =====
   // Версию подставляет app/build.sh; в прототипе остаётся «dev».
   const APP_VERSION = '__APP_VERSION__';
+  // Канал — откуда приложение ставят. github: обновления проверяются по
+  // релизам открытого репозитория; rustore: обновляет RuStore, а ссылок на
+  // скачивание APK со стороны нет — этого требуют правила магазина.
+  // Подставляет app/build.sh (CHANNEL=rustore ./build.sh); в прототипе — github.
+  const APP_CHANNEL = '__APP_CHANNEL__' === 'rustore' ? 'rustore' : 'github';
+  const RUSTORE_URL = 'https://www.rustore.ru/catalog/app/you.astrolab.day';
   const RELEASES_API = 'https://api.github.com/repos/AstroLab-you/astrolab-day/releases/latest';
   const PROFILE_KEY = 'astrolab_day_profile', CACHE_KEY = 'astrolab_day_forecast';
   const SPHERE_NAMES = [['love', 'Отношения'], ['career', 'Карьера'], ['money', 'Деньги'], ['health', 'Здоровье и энергия'],
@@ -1736,22 +1756,29 @@
       if (!silent) { el.updateStatus.textContent = `Версия ${APP_VERSION}. Нет связи с GitHub — проверьте интернет и попробуйте ещё раз.`; track('update.check', { result: 'offline' }); }
     } finally { el.checkUpdate.removeAttribute('aria-busy'); }
   }
-  // пункт меню — div с ролью кнопки: ссылка «Скачать» внутри должна оставаться ссылкой
-  el.checkUpdate.addEventListener('click', (e) => { if (!e.target.closest('a')) checkUpdate(false); });
-  el.checkUpdate.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); checkUpdate(false); } });
+  // пункт меню — div с ролью кнопки: ссылка «Скачать» внутри должна оставаться ссылкой.
+  // Из RuStore — страница приложения в магазине: обновляет он сам.
+  const onUpdateItem = () => APP_CHANNEL === 'rustore' ? window.open(RUSTORE_URL, '_blank') : checkUpdate(false);
+  el.checkUpdate.addEventListener('click', (e) => { if (!e.target.closest('a')) onUpdateItem(); });
+  el.checkUpdate.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onUpdateItem(); } });
+  if (APP_CHANNEL === 'rustore') el.checkUpdate.querySelector('.menu-title').textContent = 'Обновления — в RuStore';
 
   // ===== СТАТИСТИКА ИСПОЛЬЗОВАНИЯ =====
   // Что открывают и как часто — на наш сервер в Москве (backend, модуль app).
   // Телефон известен серверу только случайным номером установки; данные
   // рождения в события не попадают: сервер принимает лишь перечисленные
-  // поля, и для даты или места полей нет. Отключается в «О приложении».
+  // поля, и для даты или места полей нет. Только с согласия: при первом
+  // запуске приложение спрашивает (карточка #consent), ответ меняется
+  // в меню. До ответа ничего не копится и не уходит.
   // События копятся в памяти телефона и уходят пачкой — при открытии,
   // через несколько секунд после действий и при сворачивании.
   const API_BASE = (() => { try { return localStorage.getItem('astrolab_api'); } catch (e) { return null; } })() || 'https://astrolab.you/api';
-  const INSTALL_KEY = 'astrolab_install', QUEUE_KEY = 'astrolab_events', STATS_OFF_KEY = 'astrolab_stats_off';
+  const INSTALL_KEY = 'astrolab_install', QUEUE_KEY = 'astrolab_events', STATS_OFF_KEY = 'astrolab_stats_off', CONSENT_KEY = 'astrolab_stats_consent';
+  // до 0.9.1 статистика шла по умолчанию: кто её выключал, тот уже ответил «нет»
+  if (APP && store.get(CONSENT_KEY) == null && store.get(STATS_OFF_KEY) === true) store.set(CONSENT_KEY, false);
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
     : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
-  const statsOn = () => APP && !store.get(STATS_OFF_KEY);
+  const statsOn = () => APP && store.get(CONSENT_KEY) === true;
   let flushTimer = 0, flushing = false;
   function installId() {
     let id = store.get(INSTALL_KEY);
@@ -1794,11 +1821,21 @@
     finally { flushing = false; }
   }
   const statsBox = document.getElementById('stats-on');
-  statsBox.checked = !store.get(STATS_OFF_KEY);
-  statsBox.addEventListener('change', () => {
-    store.set(STATS_OFF_KEY, !statsBox.checked);
-    if (!statsBox.checked) store.set(QUEUE_KEY, []);   // выключил — и накопленное не уйдёт
-  });
+  statsBox.checked = store.get(CONSENT_KEY) === true;
+  function setConsent(yes) {
+    store.set(CONSENT_KEY, yes);
+    statsBox.checked = yes;
+    consentEl.box.hidden = true;
+    if (!yes) store.set(QUEUE_KEY, []);   // выключил — и накопленное не уйдёт
+    else { track('app.open'); flush(); }   // первое открытие до ответа не записывалось
+  }
+  statsBox.addEventListener('change', () => setConsent(statsBox.checked));
+
+  // Карточка-вопрос при первом запуске — над экраном дня, как объявления
+  const consentEl = { box: document.getElementById('consent'), yes: document.getElementById('consent-yes'), no: document.getElementById('consent-no') };
+  consentEl.yes.addEventListener('click', () => setConsent(true));
+  consentEl.no.addEventListener('click', () => setConsent(false));
+  function showConsent() { consentEl.box.hidden = store.get(CONSENT_KEY) != null; }
 
   // Открытие — холодный старт или возврат после 5 минут в фоне: короткий
   // взгляд на другое приложение не новое открытие. При сворачивании — сколько
@@ -1862,15 +1899,16 @@
   }
 
   if (APP) {
-    el.updateStatus.textContent = `Версия ${APP_VERSION}`;
+    el.updateStatus.textContent = APP_CHANNEL === 'rustore' ? `Версия ${APP_VERSION}. RuStore обновляет приложение сам.` : `Версия ${APP_VERSION}`;
     el.wheelCard.hidden = true;   // данные рождения — в меню
     el.moonChip.disabled = false;   // плашка с Луной открывает лунный календарь
-    // возврат с «Неба» — не новое открытие приложения
+    // возврат с «Неба» — не новое открытие приложения; без согласия track() ничего не пишет
     if (!RETURNING) track('app.open');
     flush(); loadFeed();
     updateCard();
     if (profile) compute(); else { showPending(todayIn(deviceTz())); el.status.textContent = ''; openSettings(); }
-    checkUpdate(true);
+    if (APP_CHANNEL === 'github') checkUpdate(true);
+    showConsent();
     // приложение могли оставить открытым до утра: новый день — новый расчёт
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && profile && DATA && DATA.generated.today !== todayIn(deviceTz())) compute();
