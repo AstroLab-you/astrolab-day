@@ -25,13 +25,24 @@
 
         </activity>
 
-        <!-- Шаги: будильник после полуночи закрывает день показанием датчика,
-             а после перезагрузки будильник ставится заново (StepsReceiver) -->
-        <receiver android:name=".StepsReceiver" android:exported="false">
+        <!-- Health Connect: экран «зачем приложению шаги». Без него Android 14+
+             не выдаёт разрешение; до 14-й версии его ищут по ACTION_SHOW_PERMISSIONS_RATIONALE,
+             с 14-й — по VIEW_PERMISSION_USAGE (activity-alias) -->
+        <activity android:name=".HealthRationaleActivity" android:exported="true" android:theme="@style/AppTheme">
             <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
-        </receiver>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".HealthRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -52,10 +63,16 @@
          Capacitor запрашивает оба разрешения сразу. Место остаётся в телефоне. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- Шаги за день (задел под игру «полёт к планетам»): счётчик шагов
-         телефона, с Android 10 — за разрешением «Физическая активность».
+    <!-- Шаги за день (задел под игру «полёт к планетам»). Два источника:
+         свой счётчик шагов телефона (с Android 10 — разрешение «Физическая
+         активность»; в фоне Android его не отдаёт) и Health Connect — шаги
+         по часам от Samsung Health и самого телефона, только чтение.
          Шаги остаются в телефоне. Без датчика приложение работает как раньше. -->
     <uses-feature android:name="android.hardware.sensor.stepcounter" android:required="false" />
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <!-- Health Connect до Android 14 — отдельное приложение, его надо видеть -->
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 </manifest>

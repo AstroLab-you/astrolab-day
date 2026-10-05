@@ -467,6 +467,11 @@
   .sh-row.is-gap .sh-bar { background: none; }
   .sh-row.is-now .sh-h { color: var(--accent); }
   .sh-note { font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .sh-note[hidden], .sh-hc[hidden] { display: none; }
+  .sh-hc { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--modal-border); border-radius: 12px; background: var(--hint-bg); }
+  .sh-hc p { font-size: 13px; color: var(--text-dim); line-height: 1.45; }
+  .sh-hc .btn-outline { min-height: 40px; padding: 8px 14px; }
+  .sh-hc .btn-outline[hidden] { display: none; }
   .menu .about { padding: 14px 8px 0; }
 
   /* ===== ЛУНА ===== шторка лунного календаря (тап по плашке с Луной):
@@ -779,7 +784,13 @@
         </div>
         <p class="sh-sum" id="sh-sum"></p>
         <div class="sh-rows" id="sh-rows"></div>
-        <p class="sh-note">Штриховка и ≈ — час посчитан оценкой: телефон в это время не отдавал показания, и шаги разделены по времени между соседними часами.</p>
+        <p class="sh-note" id="sh-est-note" hidden>Штриховка и ≈ — час посчитан оценкой: телефон в это время не отдавал показания, и шаги разделены по времени между соседними часами.</p>
+        <p class="sh-note" id="sh-src"></p>
+        <!-- Health Connect: предложить подключить, подсказать про Samsung Health -->
+        <div class="sh-hc" id="sh-hc" hidden>
+          <p id="sh-hc-text"></p>
+          <button class="btn-outline" id="sh-hc-btn" type="button" hidden></button>
+        </div>
       </div>
       <!-- div, а не button: в подписи может быть ссылка «Скачать», а ссылка внутри кнопки — не ссылка -->
       <div class="menu-item" id="check-update" role="button" tabindex="0">
@@ -1301,39 +1312,95 @@
   el.mBirth.addEventListener('click', () => { closeMenu(); openSettings(); });
 
   // ===== ШАГИ =====
-  // Считает телефон: датчик копит шаги сам, плагин Steps (app/android)
-  // читает его раз в час и при открытии меню и раскладывает шаги по часам.
   // Задел под игру «полёт к планетам» — правил пока нет, проверяем, что
-  // счёт идёт: тап по пункту раскрывает шаги по часам. Шаги остаются
-  // в телефоне, в статистику не уходят.
+  // счёт идёт: тап по пункту раскрывает шаги по часам. Источника два
+  // (плагин Steps, app/android):
+  //  • Health Connect — шаги по часам, как в Samsung Health, вместе с
+  //    часами на руке. Главный источник, если подключён;
+  //  • свой счётчик телефона — запасной. Android не отдаёт его в фоне,
+  //    поэтому по часам он точен, только пока приложение открыто, а
+  //    остальное делит по времени (штриховка, ≈).
+  // Шаги остаются в телефоне, в статистику не уходят.
   const Steps = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Steps) || null;
   const stepsWord = n => { const a = n % 10, b = n % 100; return (b >= 11 && b <= 19) ? 'шагов' : a === 1 ? 'шаг' : (a >= 2 && a <= 4) ? 'шага' : 'шагов'; };
   const localYmd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const fmtN = n => n.toLocaleString('ru-RU');
   const hh2 = h => String(h).padStart(2, '0');
   const stepsEl = { panel: document.getElementById('steps-panel'), sum: document.getElementById('sh-sum'), rows: document.getElementById('sh-rows'),
-    tabs: [...document.querySelectorAll('.sh-tab')] };
-  let stepsData = null, stepsDayBack = 0;
-  function showSteps(r) {
+    tabs: [...document.querySelectorAll('.sh-tab')], estNote: document.getElementById('sh-est-note'), src: document.getElementById('sh-src'),
+    hc: document.getElementById('sh-hc'), hcText: document.getElementById('sh-hc-text'), hcBtn: document.getElementById('sh-hc-btn') };
+  let stepsData = null, stepsOwn = null, stepsHc = null, stepsDayBack = 0, hcAction = null;
+  const sumOf = a => (a || []).reduce((x, v) => x + (+v || 0), 0);
+
+  // Что показывать: Health Connect, если он подключён и отдал часы, иначе свой счётчик
+  function showSteps(own, hc) {
+    stepsOwn = own; stepsHc = hc;
     el.mSteps.disabled = false;
-    if (!r.sensor) { el.mStepsSub.textContent = 'В этом телефоне нет счётчика шагов.'; el.mSteps.disabled = true; return; }
-    if (r.permission !== 'granted') {
-      el.mStepsSub.textContent = r.permission === 'denied'
+    const today = localYmd(new Date());
+    const useHc = !!(hc && hc.granted && hc.hours);
+    const ownOk = own && own.sensor && own.permission === 'granted';
+    if (useHc) {
+      const steps = hc.history && hc.history[today] != null ? +hc.history[today] : sumOf(hc.hours[today]);
+      stepsData = { source: 'hc', hours: hc.hours, history: hc.history || {}, est: {}, since: 0, steps };
+    } else if (ownOk) {
+      stepsData = { source: 'own', ...own };
+    } else {
+      stepsData = null;
+      // своих данных нет — в раскрытом пункте остаётся только предложение Health Connect
+      renderHealthOffer();
+      stepsEl.sum.textContent = ''; stepsEl.rows.innerHTML = ''; stepsEl.src.textContent = ''; stepsEl.estNote.hidden = true;
+      if (stepsEl.hc.hidden) stepsEl.panel.hidden = true;
+      if (own && !own.sensor) { el.mStepsSub.textContent = 'В этом телефоне нет счётчика шагов.'; el.mSteps.disabled = !(hc && hc.status === 'available'); }
+      else el.mStepsSub.textContent = own && own.permission === 'denied'
         ? 'Доступ закрыт. Разрешите «Физическую активность» в настройках приложения.'
         : 'Нажмите, чтобы разрешить доступ к счётчику шагов.';
-      stepsEl.panel.hidden = true;
       return;
     }
-    stepsData = r;
-    const parts = [`${fmtN(r.steps)} ${stepsWord(r.steps)}`];
+    const r = stepsData, parts = [`${fmtN(r.steps)} ${stepsWord(r.steps)}`];
     const y = new Date(); y.setDate(y.getDate() - 1);
     if (r.history && r.history[localYmd(y)] != null) parts.push(`вчера ${fmtN(+r.history[localYmd(y)])}`);
-    if (r.since && localYmd(new Date(r.since)) === r.day) parts.push(`счёт идёт с ${new Date(r.since).toTimeString().slice(0, 5)}`);
+    if (r.source === 'own' && r.since && localYmd(new Date(r.since)) === r.day) parts.push(`счёт идёт с ${new Date(r.since).toTimeString().slice(0, 5)}`);
     el.mStepsSub.textContent = parts.join(' · ');
+    renderHealthOffer();
     if (!stepsEl.panel.hidden) renderStepHours();
   }
-  // Строки по часам. Сегодня — до текущего часа. Часы до начала счёта —
-  // «счёт ещё не шёл» (это не ноль). Пустые часы подряд — одной строкой.
+
+  // Плашка про Health Connect: подключить, обновить, включить передачу в Samsung Health
+  function renderHealthOffer() {
+    const hc = stepsHc, own = stepsOwn, today = localYmd(new Date());
+    let text = '', btn = '';
+    hcAction = null;
+    if (hc && hc.status === 'available' && !hc.granted) {
+      text = 'Точные шаги по часам берутся из Health Connect: туда их пишет Samsung Health, вместе с часами на руке. Сам телефон в фоне шаги не отдаёт — без Health Connect часы заполняются, только пока приложение открыто.';
+      btn = hc.asked ? 'Открыть настройки Health Connect' : 'Подключить Health Connect';
+      hcAction = hc.asked ? 'settings' : 'connect';
+    } else if (hc && hc.status === 'update') {
+      text = 'Обновите Health Connect в магазине приложений — тогда шаги по часам будут как в Samsung Health.';
+    } else if (hc && hc.granted && hc.hours && !sumOf(hc.hours[today]) && own && own.steps > 200) {
+      text = 'Health Connect подключён, но шагов за сегодня в нём нет. Включите передачу: Samsung Health → Настройки → Health Connect → разрешить запись шагов.';
+      btn = 'Открыть настройки Health Connect'; hcAction = 'settings';
+    }
+    stepsEl.hc.hidden = !text;
+    stepsEl.hcText.textContent = text;
+    stepsEl.hcBtn.hidden = !btn; stepsEl.hcBtn.textContent = btn;
+  }
+  stepsEl.hcBtn.addEventListener('click', async () => {
+    if (!Steps) return;
+    try {
+      if (hcAction === 'connect') {
+        const hc = await Steps.connectHealth();
+        showSteps(stepsOwn, { ...hc, asked: !hc.granted });
+        if (stepsData) { stepsEl.panel.hidden = false; renderStepHours(); }
+      } else if (hcAction === 'settings') await Steps.openHealthSettings();
+    } catch (e) { stepsEl.hcText.textContent = 'Health Connect не ответил: ' + ((e && e.message) || e); }
+  });
+  // вернулись из настроек Health Connect — перечитать
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !el.menu.hidden && !stepsEl.panel.hidden) refreshSteps(false);
+  });
+
+  // Строки по часам. Сегодня — до текущего часа. Часы до начала своего
+  // счёта — «не шёл» (это не ноль). Пустые часы подряд — одной строкой.
   function renderStepHours() {
     const r = stepsData; if (!r) return;
     const d = new Date(); d.setDate(d.getDate() - stepsDayBack);
@@ -1341,8 +1408,11 @@
     const hours = (r.hours && r.hours[day]) || null, est = (r.est && r.est[day]) || [];
     const last = isToday ? new Date().getHours() : 23;
     const start = r.since && localYmd(new Date(r.since)) === day ? new Date(r.since).getHours() : 0;
-    const total = r.history && r.history[day] != null ? +r.history[day] : 0;
+    const total = r.history && r.history[day] != null ? +r.history[day] : sumOf(hours);
     stepsEl.tabs.forEach(t => t.setAttribute('aria-pressed', String(+t.dataset.day === stepsDayBack)));
+    stepsEl.src.textContent = r.source === 'hc' ? 'Источник — Health Connect: шаги от Samsung Health и самого телефона.'
+      : 'Источник — счётчик телефона: по часам точен, только пока приложение открыто.';
+    stepsEl.estNote.hidden = r.source !== 'own' || !est.some(Boolean);
     if (!hours) {
       const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
       stepsEl.sum.innerHTML = r.since >= dayEnd ? 'В этот день счёт ещё не шёл.'
@@ -1361,7 +1431,7 @@
       }
       const isEst = !!est[h];
       rows.push(`<div class="sh-row${isEst ? ' is-est' : ''}${isToday && h === last ? ' is-now' : ''}"><span class="sh-h">${hh2(h)}–${hh2(h + 1)}</span>`
-        + `<span class="sh-bar"><i style="width:${Math.max(2, Math.round(hours[h] / max * 100))}%"></i></span><span class="sh-n">${isEst ? '≈' : ''}${fmtN(hours[h])}</span></div>`);
+        + `<span class="sh-bar"><i style="width:${Math.max(2, Math.round(hours[h] / max * 100))}%"></i></span><span class="sh-n">${isEst ? '≈' : ''}${fmtN(+hours[h])}</span></div>`);
       h++;
     }
     stepsEl.rows.innerHTML = rows.join('');
@@ -1369,9 +1439,13 @@
   stepsEl.tabs.forEach(t => t.addEventListener('click', () => { stepsDayBack = +t.dataset.day; renderStepHours(); }));
   async function refreshSteps(ask) {
     if (!Steps) { el.mStepsSub.textContent = 'Шаги считаются только в приложении.'; el.mSteps.disabled = true; return; }
-    el.mStepsSub.textContent = 'Читаю датчик…';
-    try { showSteps(await (ask ? Steps.request() : Steps.today())); }
-    catch (e) { el.mStepsSub.textContent = 'Не удалось прочитать датчик: ' + ((e && e.message) || e); }
+    el.mStepsSub.textContent = 'Читаю шаги…';
+    // свой счётчик и Health Connect — параллельно; Health Connect без запросов, только если уже разрешён
+    const own = (ask ? Steps.request() : Steps.today()).catch(e => ({ sensor: true, permission: 'granted', error: (e && e.message) || String(e) }));
+    const hc = Steps.health ? Steps.health().catch(() => null) : Promise.resolve(null);
+    const [o, h] = await Promise.all([own, hc]);
+    if (o.error && !(h && h.granted)) { el.mStepsSub.textContent = 'Не удалось прочитать датчик: ' + o.error; return; }
+    showSteps(o.error ? { sensor: true, permission: 'granted', steps: 0, hours: {}, history: {} } : o, h && stepsHc && stepsHc.asked ? { ...h, asked: !h.granted } : h);
   }
   // ===== ЛУНА: ЛУННЫЙ КАЛЕНДАРЬ =====
   // Тап по плашке с Луной. Считает движок (src/moon-calendar.ts): фаза
@@ -1544,9 +1618,10 @@
 
   // тап: нет разрешения — спросить; есть — раскрыть или свернуть шаги по часам
   el.mSteps.addEventListener('click', async () => {
-    if (stepsData && !stepsEl.panel.hidden) { stepsEl.panel.hidden = true; el.mSteps.setAttribute('aria-expanded', 'false'); return; }
+    if (!stepsEl.panel.hidden) { stepsEl.panel.hidden = true; el.mSteps.setAttribute('aria-expanded', 'false'); return; }
     await refreshSteps(true);
-    if (stepsData) { stepsEl.panel.hidden = false; el.mSteps.setAttribute('aria-expanded', 'true'); renderStepHours(); }
+    // раскрываем и без своих данных, если есть что предложить про Health Connect
+    if (stepsData || !stepsEl.hc.hidden) { stepsEl.panel.hidden = false; el.mSteps.setAttribute('aria-expanded', 'true'); renderStepHours(); }
   });
 
   // ===== ПОИСК МЕСТА =====

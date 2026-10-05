@@ -1,30 +1,41 @@
 package you.astrolab.day;
 
 import android.Manifest;
+import android.content.ActivityNotFoundException;
 import android.os.Build;
+
+import androidx.activity.result.ActivityResult;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
+import org.json.JSONObject;
+
 /**
  * Мост к учёту шагов для страницы (window.Capacitor.Plugins.Steps).
  *
+ * Свой счётчик — датчик телефона, читается, пока приложение открыто:
  *   status()  → { sensor, permission }                         — без обращения к датчику
  *   request() → как today(), но сначала спрашивает разрешение
  *   today()   → { sensor, permission, steps, day, readAt, since, hours, est, history }
  *
- * hours — дата → 24 числа шагов по часам (последние 8 дней), est — дата →
- * 24 флага «час посчитан оценкой», history — дата → шаги за день.
+ * Health Connect — шаги по часам, как в Samsung Health (StepsHealth.kt):
+ *   health()        → { status, granted, hours?, history? }
+ *   connectHealth() → спрашивает разрешение и отвечает как health()
+ *   openHealthSettings() — настройки Health Connect, если система больше не спрашивает
  *
- * permission: granted | denied | prompt. С Android 10 чтение счётчика шагов
- * требует разрешения «Физическая активность»; раньше его не было, и там
- * считаем разрешение выданным.
+ * hours — дата → 24 числа шагов по часам, est — дата → 24 флага «час
+ * посчитан оценкой» (только у своего счётчика), history — дата → шаги за день.
+ * permission: granted | denied | prompt. С Android 10 счётчику шагов нужно
+ * разрешение «Физическая активность»; раньше его не было, и там считаем
+ * разрешение выданным. status: available | update | unavailable.
  */
 @CapacitorPlugin(
     name = "Steps",
@@ -32,13 +43,8 @@ import com.getcapacitor.annotation.PermissionCallback;
 )
 public class StepsPlugin extends Plugin {
     static final String ALIAS = "activity";
-
-    @Override
-    public void load() {
-        // каждый запуск заново ставит часовой будильник: после обновления
-        // приложения или очистки памяти он мог пропасть
-        StepsReceiver.schedule(getContext());
-    }
+    /** сколько дней сумм брать из Health Connect: глубже 30 дней до первого разрешения он не отдаёт */
+    private static final int HEALTH_DAYS = 30;
 
     @PluginMethod
     public void status(PluginCall call) {
@@ -78,6 +84,48 @@ public class StepsPlugin extends Plugin {
             }
             call.resolve(o);
         }, "steps-today").start();
+    }
+
+    // ===== HEALTH CONNECT =====
+
+    @PluginMethod
+    public void health(PluginCall call) {
+        JSObject o = new JSObject();
+        String st = StepsHealth.status(getContext());
+        o.put("status", st);
+        if (!"available".equals(st)) { o.put("granted", false); call.resolve(o); return; }
+        StepsHealth.read(getContext(), HEALTH_DAYS).whenComplete((JSONObject data, Throwable err) -> {
+            if (err != null) { call.reject("Health Connect: " + err.getMessage()); return; }
+            o.put("granted", data != null);
+            if (data != null) { o.put("hours", data.opt("hours")); o.put("history", data.opt("history")); }
+            call.resolve(o);
+        });
+    }
+
+    @PluginMethod
+    public void connectHealth(PluginCall call) {
+        if (!"available".equals(StepsHealth.status(getContext()))) { health(call); return; }
+        try {
+            startActivityForResult(call, StepsHealth.permissionIntent(getContext()), "afterHealth");
+        } catch (ActivityNotFoundException e) {
+            call.reject("Health Connect не открылся: " + e.getMessage());
+        }
+    }
+
+    @ActivityCallback
+    private void afterHealth(PluginCall call, ActivityResult result) {
+        // что именно выдано, health() перепроверит сам
+        health(call);
+    }
+
+    @PluginMethod
+    public void openHealthSettings(PluginCall call) {
+        try {
+            getActivity().startActivity(StepsHealth.settingsIntent());
+            call.resolve();
+        } catch (ActivityNotFoundException e) {
+            call.reject("Настройки Health Connect не открылись");
+        }
     }
 
     private boolean permitted() {
