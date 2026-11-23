@@ -59,16 +59,29 @@ const N_W: Record<N, number> = { sun: 1, moon: 1, asc: 1, mc: 1, mercury: 0.8, v
 
 // традиционные управители знаков (решение 1)
 const RULER: P[] = ['mars', 'venus', 'mercury', 'moon', 'sun', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'saturn', 'jupiter'];
+// Второй хозяин у Скорпиона, Водолея и Рыб (решение 20.11.2026, как в разборах —
+// «одно правило школ», п. 12 каркаса натала): засчитывается с тем же весом,
+// что и традиционный, в строке «почему» — «второго хозяина сферы …».
+// Статус сравнивает сферу с её же днями, поэтому лишние касания не делают
+// такую сферу «громче» других.
+const RULER_MODERN: Partial<Record<number, P>> = { 7: 'pluto', 10: 'uranus', 11: 'neptune' };
 
-// сферы: главный дом, дополнительный, планеты-показатели (решение 5)
-const SPHERES: { id: string; name: string; main: number; sec: number; sig: P[]; about: string }[] = [
-  { id: 'love', name: 'Отношения', main: 7, sec: 5, sig: ['venus'], about: 'Партнёрство, романы, то, как вы сближаетесь с людьми.' },
-  { id: 'career', name: 'Карьера', main: 10, sec: 6, sig: ['sun', 'saturn'], about: 'Работа, статус, то, как вас видят в профессии.' },
-  { id: 'money', name: 'Деньги', main: 2, sec: 8, sig: ['jupiter', 'venus'], about: 'Доходы, траты, ощущение опоры и ресурсов.' },
-  { id: 'health', name: 'Здоровье и энергия', main: 6, sec: 1, sig: ['sun', 'mars'], about: 'Силы, режим, самочувствие.' },
-  { id: 'inner', name: 'Внутренний мир', main: 12, sec: 4, sig: ['moon'], about: 'Настроение, чувства, то, что происходит внутри.' },
-  { id: 'family', name: 'Семья и дом', main: 4, sec: 10, sig: ['moon'], about: 'Дом, родные, чувство корней.' },
-  { id: 'talk', name: 'Общение и учёба', main: 3, sec: 9, sig: ['mercury'], about: 'Разговоры, переписка, поездки, новое знание.' },
+// Сферы (решение 20.11.2026): главный дом считается полностью, второй —
+// вполовину, плюс планеты-показатели. Главные дома не повторяются: каждый
+// из 12 домов — главный ровно у одной полосы или второй у какой-то, все 12
+// участвуют. Второй дом — только где он естественен по смыслу (у «Радости»
+// его нет). Порядок — по интересу людей: отношения, деньги, работа.
+// id 'family' больше нет (влит в 'inner'); 'joy' и 'friends' — новые,
+// их же должен принимать сервер статистики (backend/src/modules/app/routes.ts)
+const SPHERES: { id: string; name: string; main: number; sec: number | null; sig: P[]; about: string }[] = [
+  { id: 'love', name: 'Отношения', main: 7, sec: 5, sig: ['venus'], about: 'Партнёр, романы, свидания, то, как складывается близость.' },
+  { id: 'money', name: 'Деньги', main: 2, sec: 8, sig: ['jupiter'], about: 'Свои деньги и общие: доходы, траты, долги.' },
+  { id: 'career', name: 'Работа', main: 10, sec: 6, sig: ['saturn'], about: 'Дело, статус, будни и рабочий ритм.' },
+  { id: 'health', name: 'Энергия и самочувствие', main: 1, sec: 6, sig: ['sun', 'mars'], about: 'Силы, самочувствие, режим.' },
+  { id: 'inner', name: 'Эмоции и семья', main: 4, sec: 12, sig: ['moon'], about: 'Настроение, дом и семья, потребность побыть наедине с собой.' },
+  { id: 'joy', name: 'Радость и творчество', main: 5, sec: null, sig: ['venus'], about: 'Удовольствия, хобби, творчество, отдых.' },
+  { id: 'talk', name: 'Общение и учёба', main: 3, sec: 9, sig: ['mercury'], about: 'Разговоры, переписка, учёба, поездки, новые идеи.' },
+  { id: 'friends', name: 'Друзья и замыслы', main: 11, sec: 3, sig: [], about: 'Друзья, приятели, сообщества, планы на будущее.' },
 ];
 
 /* ===== ТЕКСТЫ (черновые шаблоны из вкладки «Словарь») ===== */
@@ -78,40 +91,109 @@ const NAME: Record<P, string> = { sun: 'Солнце', moon: 'Луна', mercury
 const DAT: Record<N, string> = { sun: 'вашему Солнцу', moon: 'вашей Луне', mercury: 'вашему Меркурию', venus: 'вашей Венере', mars: 'вашему Марсу', jupiter: 'вашему Юпитеру', saturn: 'вашему Сатурну', uranus: 'вашему Урану', neptune: 'вашему Нептуну', pluto: 'вашему Плутону', asc: 'вашему Асценденту', mc: 'вашему MC' };
 const INS: Record<N, string> = { sun: 'вашим Солнцем', moon: 'вашей Луной', mercury: 'вашим Меркурием', venus: 'вашей Венерой', mars: 'вашим Марсом', jupiter: 'вашим Юпитером', saturn: 'вашим Сатурном', uranus: 'вашим Ураном', neptune: 'вашим Нептуном', pluto: 'вашим Плутоном', asc: 'вашим Асцендентом', mc: 'вашим MC' };
 const ASP_PHRASE: Record<AspectType, string> = { conjunction: 'в соединении с', sextile: 'в секстиле к', square: 'в квадрате к', trine: 'в трине к', opposition: 'в оппозиции к' };
-// что приносит транзитная планета: [поддерживает, мешает, нейтрально]
+/* ===== СТРОКИ ВЛИЯНИЙ ВНУТРИ ПОЛОСЫ (решение 20.11.2026) =====
+ * Строка = что происходит (планета неба и тон) + где (по полосе, в которой
+ * строка стоит), под ней мелко — почему (какую точку карты задело и чем
+ * она связана со сферой). Раньше «где» бралось из общего значения задетой
+ * планеты, и в «Отношениях» стояло «в работе и обязательствах», если
+ * Сатурн — хозяин дома партнёрства. Фразы «что» — без привязки к теме,
+ * чтобы читались в любой полосе. */
+
+// что приносит планета неба: [помогает, мешает, соединение без явного тона]
 const EFFECT: Record<P, [string, string, string]> = {
-  sun: ['уверенность и признание', 'давление на самолюбие', 'больше внимания к себе'],
+  sun: ['уверенность и признание', 'задетое самолюбие', 'желание внимания'],
   moon: ['лёгкое настроение', 'раздражительность', 'обострённые чувства'],
   mercury: ['ясные разговоры и договорённости', 'путаница в словах и планах', 'много мыслей и переписки'],
-  venus: ['тепло и лёгкость', 'мелкие обиды и лишние траты', 'тепло и лёгкость'],
-  mars: ['энергия и решительность', 'спешка и споры', 'спешка и споры'],
-  jupiter: ['удача и новые возможности', 'лишние обещания и перебор', 'удача и новые возможности'],
-  saturn: ['устойчивость и порядок', 'больше ответственности, меньше признания', 'больше ответственности, меньше признания'],
+  venus: ['тепло и лёгкость', 'мелкие обиды', 'тяга к приятному'],
+  mars: ['энергия и решительность', 'спешка и споры', 'напор и нетерпение'],
+  jupiter: ['удача и новые возможности', 'перебор и лишние обещания', 'подъём и щедрость'],
+  saturn: ['устойчивость и порядок', 'больше нагрузки, меньше отдачи', 'серьёзность и обязательства'],
   uranus: ['приятные неожиданности', 'внезапные перемены планов', 'неожиданные повороты'],
   neptune: ['вдохновение и чуткость', 'туман и усталость', 'мечтательность'],
-  pluto: ['сила менять глубоко', 'борьба за контроль', 'сильные чувства'],
+  pluto: ['сила глубоко что-то изменить', 'борьба за контроль', 'сильные чувства'],
 };
-// чего касается натальная точка
-const AREA: Record<N, string> = {
-  sun: 'в самоощущении', moon: 'в настроении и с близкими', mercury: 'в общении и делах', venus: 'в отношениях и деньгах',
-  mars: 'в делах, где нужен напор', jupiter: 'в планах на рост', saturn: 'в работе и обязательствах', uranus: 'в жажде перемен',
-  neptune: 'в мечтах и творчестве', pluto: 'в глубоких переживаниях', asc: 'в том, как вас воспринимают', mc: 'в карьере и репутации',
+// где — по полосе. У «Энергии и самочувствия» пусто: «спешка и споры
+// в самочувствии» не по-русски, а заголовок полосы и так над строкой
+const SPHERE_WHERE: Record<string, string> = {
+  love: 'в отношениях', money: 'в денежных делах', career: 'в работе', health: '',
+  inner: 'дома и с близкими', joy: 'в отдыхе и увлечениях', talk: 'в разговорах и учёбе', friends: 'с друзьями',
 };
-// совет по дому, через который идёт Луна
-const MOON_HOUSE: string[] = [
-  '', 'на первом плане вы сами: хорошо начинать своё и показываться людям.',
-  'день для денег и вещей: посчитать, купить нужное, отложить лишнее.',
-  'много разговоров и мелких дел: хорошо договариваться и писать.',
-  'тянет домой: побыть с родными, навести порядок у себя.',
-  'время для радости: свидание, хобби, творчество.',
-  'день будней: разобрать дела, позаботиться о режиме и здоровье.',
-  'всё решается через других: партнёр, переговоры, совместные дела.',
-  'день для того, чтобы разобраться с общими деньгами и тем, что давно откладывали.',
-  'тянет к новому — дороге, книгам, планам.',
-  'на виду работа и репутация: хорошо показать результат.',
-  'день для друзей и единомышленников: встречи, общие планы.',
-  'время тишины: отдохнуть, выспаться, побыть одному.',
+// почему — роль задетой точки в сфере
+const PLANET_ACC: Record<P, string> = { sun: 'Солнце', moon: 'Луну', mercury: 'Меркурий', venus: 'Венеру', mars: 'Марс', jupiter: 'Юпитер', saturn: 'Сатурн', uranus: 'Уран', neptune: 'Нептун', pluto: 'Плутон' };
+// Значения домов — те же, что HOUSE_ABOUT в day.html, wheel.html и sky.html:
+// «хозяйку 2-го дома (свои деньги, вещи)». Менять во всех четырёх местах сразу
+const HOUSE_ABOUT: string[] = ['', 'характер, внешность', 'свои деньги, вещи', 'общение, учёба', 'дом, семья, корни', 'влюблённость, дети, творчество',
+  'работа, быт, здоровье', 'партнёр, брак, договоры', 'общие деньги, долги, близость', 'поездки, мировоззрение', 'карьера, статус, репутация', 'друзья, общие планы', 'подсознание, уединение'];
+const HOUSE_ROLE = (n: number) => `${n}-го дома (${HOUSE_ABOUT[n]})`;
+const SIG_ROLE: Record<string, string> = {
+  'love:venus': 'планету любви', 'joy:venus': 'планету удовольствий', 'money:jupiter': 'планету достатка', 'career:saturn': 'планету обязательств',
+  'health:sun': 'планету жизненных сил', 'health:mars': 'планету энергии', 'inner:moon': 'планету чувств', 'talk:mercury': 'планету общения',
+};
+/* ===== ФРАЗА ДНЯ В ЦЕНТРЕ КОЛЕСА =====
+ * Две части. Фон — сфера карты, через которую идёт Луна, и знак Луны:
+ * сфера держится 2–4 дня, знак — около 2,5, меняются они в разное время,
+ * поэтому фон обновляется почти каждый день (12 × 12 сочетаний).
+ * Событие — самое сильное касание Луны к точке карты за день, с часами:
+ * Луна задевает одну-две точки в день, поэтому событие своё каждый день.
+ * Медленные планеты в событие не берём: их касание держится неделями,
+ * и подпись снова застыла бы.
+ * Тексты без «вы» и «ты» и без рода: подходят и к нынешнему экрану
+ * на «вы», и к будущему переводу на «ты». */
+
+// сфера, через которую идёт Луна
+const MOON_BG_HOUSE: string[] = [
+  '',
+  'День про себя',
+  'День для денег и вещей',
+  'День разговоров и мелких дел',
+  'Тянет домой, к своим',
+  'Время для радости',
+  'День будних дел и режима',
+  'День для пары и договоров',
+  'День для близости и общих денег',
+  'Тянет к новому и далёкому',
+  'На виду работа и репутация',
+  'День для друзей и общих планов',
+  'Время тишины и отдыха',
 ];
+// как это ощущается — по знаку Луны
+const MOON_BG_SIGN: string[] = [
+  'горячо, с азартом',         // Овен
+  'не спеша, с удовольствием', // Телец
+  'легко и на бегу',           // Близнецы
+  'по-домашнему, с заботой',   // Рак
+  'щедро, от души',            // Лев
+  'по пунктам, без суеты',     // Дева
+  'вдвоём и красиво',          // Весы
+  'всерьёз, до глубины',       // Скорпион
+  'широко, с размахом',        // Стрелец
+  'сдержанно, с пользой',      // Козерог
+  'по-своему, без правил',     // Водолей
+  'мягко, по настроению',      // Рыбы
+];
+// Луна касается точки карты: [гармония — трин, секстиль; напряжение — квадрат,
+// оппозиция; соединение]
+const MOON_EVENT: Record<N, [string, string, string]> = {
+  sun: ['Легко быть собой: силы и настроение заодно', 'Хочется одного, а чувствуется другое: не давить на себя', 'Что внутри, то и снаружи: настроение на виду'],
+  moon: ['Спокойно внутри, хорошо с близкими', 'Чувства через край: отношения лучше не выяснять', 'Всё ощущается острее: стоит прислушаться к себе'],
+  mercury: ['Слова находятся легко: хорошо договариваться и писать', 'Легко не понять друг друга: важное лучше перечитать', 'Голова полна мыслей, много переписки'],
+  venus: ['Тепло в отношениях: хорошее время для свидания', 'Мелкие обиды и лишние траты: стоит притормозить', 'Хочется приятного: красоты, вкусного, ласки'],
+  mars: ['Есть запал: хорошо браться за трудное', 'Легко вспылить: споры лучше отложить', 'Энергии много, терпения мало'],
+  jupiter: ['Щедрое настроение: хорошо просить и предлагать', 'Тянет на перебор в обещаниях, тратах и еде', 'Настроение на подъёме, всё кажется возможным'],
+  saturn: ['Получается собранно: время для скучных дел', 'Тяжелее обычного: лишнего лучше не взваливать', 'Серьёзный настрой, тянет навести порядок'],
+  uranus: ['Тянет на новое: хорошо менять привычное', 'Нервно и непредсказуемо: нужен запас времени', 'Хочется свободы и чего-то неожиданного'],
+  neptune: ['Чуткость и вдохновение: время для творчества', 'Туман в голове: важные решения подождут', 'Мечтательно и рассеянно, тянет уйти в себя'],
+  pluto: ['Хватает сил на глубокий разговор или перемену', 'Сильные чувства, тянет всё контролировать', 'Всё всерьёз: эмоции глубже обычного'],
+  asc: ['Легко с людьми: хорошо знакомиться и показываться', 'Внутри неспокойно, и это видно со стороны', 'Чувства на лице: настроение считывают сразу'],
+  mc: ['Настроение помогает в работе: хорошо показать результат', 'Дом и работа тянут в разные стороны', 'Мысли о работе и о том, куда всё движется'],
+};
+// часы события: «с 13:00 до 19:00», «до 11:00», «с 20:00», «весь день»
+function hoursText(from: number, to: number): string {
+  if (from <= 0 && to >= 24) return 'весь день';
+  if (from <= 0) return `до ${to}:00`;
+  if (to >= 24) return `с ${from}:00`;
+  return `с ${from}:00 до ${to}:00`;
+}
 const SIGN_IN = ['Овне', 'Тельце', 'Близнецах', 'Раке', 'Льве', 'Деве', 'Весах', 'Скорпионе', 'Стрельце', 'Козероге', 'Водолее', 'Рыбах'];
 const SIGN_NOM = ['Овен', 'Телец', 'Близнецы', 'Рак', 'Лев', 'Дева', 'Весы', 'Скорпион', 'Стрелец', 'Козерог', 'Водолей', 'Рыбы'];
 
@@ -164,16 +246,28 @@ export function buildForecast(inp: ForecastInput) {
   // вес натальной точки в каждой сфере: управитель главного дома — 1,
   // управитель дополнительного или показатель — 0.5; Асцендент и MC —
   // это сами куспиды 1-го и 10-го домов
+  // У каждой точки запоминается и роль — для строки «почему»: при равном
+  // весе остаётся первая: хозяин главного дома, потом показатель («планету
+  // любви» понятнее, чем «хозяйку сферы радости» в «Отношениях»), потом второй дом
   const sphereWeight: Record<string, Partial<Record<N, number>>> = {};
+  const sphereRole: Record<string, Partial<Record<N, string>>> = {};
+  const holder = (p: P) => (p === 'moon' || p === 'venus' ? 'хозяйку ' : 'хозяина ');
   for (const s of SPHERES) {
-    const w: Partial<Record<N, number>> = {};
-    const put = (n: N, x: number) => { w[n] = Math.max(w[n] ?? 0, x); };
-    put(RULER[natal.houses[s.main - 1].signIndex], 1);
-    put(RULER[natal.houses[s.sec - 1].signIndex], 0.5);
-    for (const p of s.sig) put(p, 0.5);
-    if (s.main === 1) put('asc', 1); if (s.sec === 1) put('asc', 0.5);
-    if (s.main === 10) put('mc', 1); if (s.sec === 10) put('mc', 0.5);
-    sphereWeight[s.id] = w;
+    const w: Partial<Record<N, number>> = {}, role: Partial<Record<N, string>> = {};
+    const put = (n: N, x: number, why: string) => { if (x > (w[n] ?? 0)) { w[n] = x; role[n] = why; } };
+    const mainSign = natal.houses[s.main - 1].signIndex, mainRuler = RULER[mainSign];
+    put(mainRuler, 1, holder(mainRuler) + HOUSE_ROLE(s.main));
+    const mainModern = RULER_MODERN[mainSign];
+    if (mainModern) put(mainModern, 1, 'второго хозяина ' + HOUSE_ROLE(s.main));
+    for (const p of s.sig) put(p, 0.5, SIG_ROLE[s.id + ':' + p] ?? 'планету этой сферы');
+    if (s.sec !== null) {
+      const secSign = natal.houses[s.sec - 1].signIndex, r = RULER[secSign], m = RULER_MODERN[secSign];
+      put(r, 0.5, holder(r) + HOUSE_ROLE(s.sec));
+      if (m) put(m, 0.5, 'второго хозяина ' + HOUSE_ROLE(s.sec));
+    }
+    if (s.main === 1) put('asc', 1, 'то, каким видят со стороны'); if (s.sec === 1) put('asc', 0.5, 'то, каким видят со стороны');
+    if (s.main === 10) put('mc', 1, 'точку карьеры'); if (s.sec === 10) put('mc', 0.5, 'точку карьеры');
+    sphereWeight[s.id] = w; sphereRole[s.id] = role;
   }
   lap('natal', t);
 
@@ -208,12 +302,32 @@ export function buildForecast(inp: ForecastInput) {
   // какие натальные точки входят хоть в одну сферу — остальные не считаем
   const USED = NATAL_POINTS.filter(n => SPHERES.some(s => sphereWeight[s.id][n]));
 
-  function dayCalc(ymd: string) {
+  // касание Луны к точке карты по часам дня — для события в центре колеса
+  type MoonHit = { natal: N; aspect: AspectType; k: number[] };
+
+  function dayCalc(ymd: string, withEvent = false) {
     const jdNoon = noonJd(ymd), noon = skyAt(jdNoon);
     const sp: Record<string, SphereDay> = Object.fromEntries(SPHERES.map(s => [s.id, { S: new Array(SLOTS).fill(0), toned: new Array(SLOTS).fill(0), own: new Map() }]));
+    const moonHits = new Map<string, MoonHit>();
+    const moonByHour: number[] = [];   // долгота Луны на середину каждого часа — плашка «сейчас»
     for (let h = 0; h < 24; h++) {
       const dt = (h + 0.5 - 12) / 24, slot = Math.floor(h / 3);
       const moon = planet(jdNoon + dt, 'moon');
+      if (withEvent) moonByHour.push(moon.lon);
+      // событие дня: все точки карты, не только те, что входят в сферы;
+      // сила — по той же формуле, что у полос
+      if (withEvent) for (const n of NATAL_POINTS) {
+        const s = sep(moon.lon, natalLon[n]);
+        for (const [a, ang] of ASPECTS) {
+          const orb = Math.abs(s - ang);
+          if (orb > T_ORB.moon) continue;
+          const applying = Math.abs(sep(moon.lon + moon.speed * 0.01, natalLon[n]) - ang) < orb;
+          const k = T_W.moon * N_W[n] * (1 - orb / T_ORB.moon) * (applying ? 1 : 0.7);
+          let m = moonHits.get(a + n);
+          if (!m) moonHits.set(a + n, m = { natal: n, aspect: a, k: new Array(24).fill(0) });
+          m.k[h] = Math.max(m.k[h], k);
+        }
+      }
       for (const p of PLANETS) {
         const lon = p === 'moon' ? moon.lon : noon[p].lon + noon[p].speed * dt;
         const speed = p === 'moon' ? moon.speed : noon[p].speed;
@@ -240,17 +354,40 @@ export function buildForecast(inp: ForecastInput) {
       const mh = houseOf(moon.lon, cusps);
       for (const s2 of SPHERES) sp[s2.id].S[slot] += (mh === s2.main ? 0.5 : mh === s2.sec ? 0.25 : 0) / 3;
     }
-    return { ymd, jdNoon, noon, sp };
+    return { ymd, jdNoon, noon, sp, moonHits, moonByHour };
   }
 
-  // Только смысл: «Лёгкое настроение в работе и обязательствах.» Кто к кому
-  // и каким аспектом — видно по значкам строки и подсветке на колесе, в
-  // тексте это лишний для неастролога слой. Полная фраза — в aria-label.
-  function textOf(ct: Contrib): string {
+  // Самое сильное касание Луны за день и его часы: от первого до последнего
+  // часа, где сила не меньше половины пиковой. Нет касаний — события нет,
+  // в центре остаётся один фон.
+  function dayEvent(hits: Map<string, MoonHit>) {
+    let best: MoonHit | null = null, peak = 0;
+    for (const m of hits.values()) { const p = Math.max(...m.k); if (p > peak) { peak = p; best = m; } }
+    if (!best) return null;
+    const hrs = best.k.flatMap((x, i) => x >= peak / 2 ? [i] : []);
+    const from = hrs[0], to = hrs[hrs.length - 1] + 1;
+    const tone = toneOf('moon', best.aspect);
+    return {
+      natal: best.natal, aspect: best.aspect, tone, from, to,
+      text: MOON_EVENT[best.natal][tone > 0 ? 0 : tone < 0 ? 1 : 2],
+      when: hoursText(from, to),
+      label: `${NAME.moon} ${ASP_PHRASE[best.aspect]} ${best.aspect === 'conjunction' ? INS[best.natal] : DAT[best.natal]}`,
+    };
+  }
+
+  // «Энергия и решительность в отношениях.» — что + где по полосе
+  function textOf(ct: Contrib, sphereId: string): string {
     const eff = EFFECT[ct.transit][ct.tone > 0 ? 0 : ct.tone < 0 ? 1 : 2];
-    // планета к самой себе: «в настроении» после «настроение» звучит дважды
-    const area = ct.transit === ct.natal ? '' : ' ' + AREA[ct.natal];
-    return `${eff[0].toUpperCase()}${eff.slice(1)}${area}.`;
+    const where = SPHERE_WHERE[sphereId];
+    return `${eff[0].toUpperCase()}${eff.slice(1)}${where ? ' ' + where : ''}.`;
+  }
+
+  // «Марс задевает Сатурн в карте — хозяина 7-го дома (партнёр, договоры)»: строка
+  // «почему» показывает, что считается по личной карте, а не общий гороскоп
+  function whyOf(ct: Contrib, sphereId: string): string {
+    const role = sphereRole[sphereId][ct.natal] ?? '';
+    const target = ct.natal === 'asc' ? 'восход карты' : ct.natal === 'mc' ? 'вершину карты' : `${PLANET_ACC[ct.natal as P]} в карте`;
+    return `${NAME[ct.transit]} задевает ${target}${role ? ' — ' + role : ''}`;
   }
 
   // «Луна в трине к вашему Сатурну» — для экранного диктора
@@ -279,7 +416,7 @@ export function buildForecast(inp: ForecastInput) {
   const dist: Record<string, number[]> = Object.fromEntries(SPHERES.map(s => [s.id, [] as number[]]));
   const shown = new Map<string, ReturnType<typeof dayCalc>>();
   for (let i = -182; i <= 182; i++) {
-    const dc = dayCalc(addDays(todayYmd, i));
+    const dc = dayCalc(addDays(todayYmd, i), i >= -6 && i <= 0);
     for (const s of SPHERES) dist[s.id].push(...dc.sp[s.id].S);
     if (i >= -6 && i <= 0) shown.set(dc.ymd, dc);
   }
@@ -302,27 +439,41 @@ export function buildForecast(inp: ForecastInput) {
   const r2 = (x: number) => Math.round(x * 100) / 100, r3 = (x: number) => Math.round(x * 1000) / 1000;
   const days = [];
   for (let i = -6; i <= 0; i++) {
-    const { ymd, noon: pos, sp } = shown.get(addDays(todayYmd, i))!;
+    const { ymd, noon: pos, sp, moonHits, moonByHour } = shown.get(addDays(todayYmd, i))!;
     const moonHouse = houseOf(pos.moon.lon, cusps);
     const moonSign = Math.floor(norm(pos.moon.lon) / 30);
     const lines = new Map<string, Contrib>();
     const spheres = SPHERES.map(def => {
       const d = sp[def.id];
       // причины — влияния, заметные хоть в одном отрезке; сильные выше
+      // одинаковый текст в одной полосе — только самая сильная строка:
+      // «Лёгкое настроение в денежных делах» дважды подряд читается как сбой
+      const seen = new Set<string>();
       const own = [...d.own.values()].filter(c => Math.max(...c.slots) > 0.005)
-        .sort((a, b) => Math.max(...b.slots) - Math.max(...a.slots)).slice(0, 5);
+        .sort((a, b) => Math.max(...b.slots) - Math.max(...a.slots))
+        .filter(c => { const k = textOf(c, def.id); if (seen.has(k)) return false; seen.add(k); return true; })
+        .slice(0, 5);
       own.forEach(c => lines.set(c.transit + c.aspect + c.natal, c));
       return {
         id: def.id, name: def.name, about: def.about,
         slots: d.S.map((S, j) => ({ strength: percentile(def.id, S), tone: S ? r2(d.toned[j] / S) : 0 })),
         drivers: own.map(c => ({ transit: c.transit, aspect: c.aspect, natal: c.natal, tone: c.tone,
-          text: textOf(c), label: labelOf(c), slots: c.slots.map(r3) })),
+          text: textOf(c, def.id), why: whyOf(c, def.id), label: labelOf(c), slots: c.slots.map(r3) })),
       };
     });
     days.push({
       date: ymd,
       moon: { sign: SIGN_NOM[moonSign], signIn: SIGN_IN[moonSign], natalHouse: moonHouse, phase: moonPhase(pos.sun.lon, pos.moon.lon),
-              text: `Луна в вашем ${moonHouse}-м доме: ${MOON_HOUSE[moonHouse]}` },
+              text: `${MOON_BG_HOUSE[moonHouse]} — ${MOON_BG_SIGN[moonSign]}`,
+              // то же по часам: у сегодняшнего дня плашка и фон — на текущий час,
+              // у прошлых — на полдень (решение 20.11.2026: утром до смены знака
+              // плашка на полдень расходилась с лунным календарём)
+              hourly: moonByHour.map(lon => {
+                const sg = Math.floor(norm(lon) / 30), hs = houseOf(lon, cusps);
+                return { sign: SIGN_NOM[sg], signIn: SIGN_IN[sg], natalHouse: hs, text: `${MOON_BG_HOUSE[hs]} — ${MOON_BG_SIGN[sg]}` };
+              }) },
+      // событие дня в центре колеса; null — Луна за день ничего не задела
+      event: dayEvent(moonHits),
       // небо дня для колеса (на полдень): планеты в натальных домах
       sky: PLANETS.map(p => ({ id: p, name: NAME[p], ...position(pos[p].lon), speed: pos[p].speed, retrograde: pos[p].speed < 0, house: houseOf(pos[p].lon, cusps) })),
       // линии на колесе — все причины дня, чтобы подсветка строки нашла свою пару
@@ -340,6 +491,12 @@ export function buildForecast(inp: ForecastInput) {
     natal: {
       angles: natal.angles, houses: natal.houses,
       points: NATAL_POINTS.map(n => ({ id: n, lon: natalLon[n] })),
+      // для «Персональной натальной карты» в меню: только расчёт, без толкований.
+      // system: P — Плацидус, O — Порфирий (за полярным кругом)
+      system: natal.settings.houseSystem.charAt(0),
+      bodies: natal.bodies.filter(b => b.id !== 'southNode').map(b => ({ id: b.id, name: b.name, sign: b.signIndex,
+        deg: Math.floor(b.degreeInSign), min: Math.floor((b.degreeInSign % 1) * 60), house: b.house, retro: b.retrograde })),
+      aspects: natal.aspects.map(a => ({ a: a.a, b: a.b, type: a.type, orb: r2(a.orb) })),
     },
     days,
   };

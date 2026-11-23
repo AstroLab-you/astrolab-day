@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // свои плагины регистрируются до того, как мост поднимет WebView
         registerPlugin(StepsPlugin.class);
+        registerPlugin(SharePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

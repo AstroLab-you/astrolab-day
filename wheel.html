@@ -154,6 +154,13 @@
   .w-natal-glyph { fill:var(--accent); font-family:var(--glyph-font); font-size:14px; text-anchor:middle; dominant-baseline:central; opacity:.85; }
   .w-natal, .w-body, .w-aspect { transition:opacity .25s; }
   .w-center-text { transition:opacity .45s ease; }
+  /* фон дня над событием (только без события, когда он один) и часы под ним — мельче основной фразы */
+  .w-center-bg { display:block; font-size:.62em; color:var(--text-dim); margin-bottom:.5em; font-family:var(--font); }
+  /* фон дня при событии — дугой над кругом, от AC до DC, кеглем основной фразы.
+     Дуга выходит за viewBox — слоям колеса разрешено рисовать за краем */
+  .is-embed .wheel-stack > svg { overflow:visible; }
+  .w-center-arc { fill:var(--text-dim); font-family:var(--font); text-anchor:middle; pointer-events:none; transition:opacity .45s ease; }
+  .w-center-when { display:block; font-size:.62em; color:var(--accent); margin-top:.45em; letter-spacing:.03em; }
   .is-moving .w-aspect, .is-moving .w-natal.is-hl { opacity:0 !important; }
   .w-natal.is-hl .w-natal-dot { fill:var(--accent); }
   .w-body.is-hl .w-body-token { stroke:var(--accent); stroke-width:2; }
@@ -230,6 +237,9 @@
     /* ===== ГЛИФЫ И СЛОВАРИ ===== */
     const GLYPH = {sun:'☉\uFE0E',moon:'☽\uFE0E',mercury:'☿\uFE0E',venus:'♀\uFE0E',mars:'♂\uFE0E',jupiter:'♃\uFE0E',saturn:'♄\uFE0E',uranus:'♅\uFE0E',neptune:'♆\uFE0E',pluto:'♇\uFE0E',northNode:'☊\uFE0E',southNode:'☋\uFE0E',lilith:'⚸\uFE0E',chiron:'⚷\uFE0E'};
     const SIGN_GLYPH = ['♈\uFE0E','♉\uFE0E','♊\uFE0E','♋\uFE0E','♌\uFE0E','♍\uFE0E','♎\uFE0E','♏\uFE0E','♐\uFE0E','♑\uFE0E','♒\uFE0E','♓\uFE0E'];
+    // о чём дом — тот же список в day.html, wheel.html и sky.html (страницы самодостаточные); менять во всех трёх
+    const HOUSE_ABOUT = ['', 'характер, внешность', 'свои деньги, вещи', 'общение, учёба', 'дом, семья, корни', 'влюблённость, дети, творчество',
+      'работа, быт, здоровье', 'партнёр, брак, договоры', 'общие деньги, долги, близость', 'поездки, мировоззрение', 'карьера, статус, репутация', 'друзья, общие планы', 'подсознание, уединение'];
     const SIGN_NAME = ['ОВЕН','ТЕЛЕЦ','БЛИЗНЕЦЫ','РАК','ЛЕВ','ДЕВА','ВЕСЫ','СКОРПИОН','СТРЕЛЕЦ','КОЗЕРОГ','ВОДОЛЕЙ','РЫБЫ'];
     const INSTR = {sun:'Солнцем',moon:'Луной',mercury:'Меркурием',venus:'Венерой',mars:'Марсом',jupiter:'Юпитером',saturn:'Сатурном',uranus:'Ураном',neptune:'Нептуном',pluto:'Плутоном',northNode:'Северным узлом',southNode:'Южным узлом',lilith:'Лилит',chiron:'Хироном',asc:'Асцендентом',mc:'МС',dsc:'Десцендентом',ic:'ИЦ'};
     const ASP_NAME = {conjunction:'соединение',sextile:'секстиль',square:'квадрат',trine:'трин',opposition:'оппозиция'};
@@ -258,6 +268,8 @@
     // радиусы от края к центру: двойное кольцо, зодиак, шкала, жетоны,
     // окружность хорд-аспектов, центральный круг
     const R_OUT=304, R_ZO=290, R_ZI=240, R_BODY=210, R_ASP=184, R_CENTER=EMBED?134:84;  // во встраивании центр шире: в нём фраза дня
+    // радиус строки фона дня над кругом — снаружи подписей осей (R_OUT+23)
+    const R_ARC=354;
     const MIN_GAP=9;     // ° между жетонами, ближе — разносим
     function pol(lon,r){
       const asc=(orient==='asc'&&data.angles)?data.angles.asc.longitude:0;
@@ -404,6 +416,11 @@
         const fo=el('foreignObject',{x:cx-side/2,y:cy-side/2,width:side,height:h,class:'w-center-text-box'},svg);
         const div=document.createElementNS('http://www.w3.org/1999/xhtml','div');
         div.className='w-center-text'; fo.appendChild(div);
+        // дуга над кругом: слева направо через верх, буквы смотрят наружу
+        const arcG=el('g',{class:'w-center-arc-g'},svg);
+        el('path',{id:'w-arc-path',d:`M${cx-R_ARC},${cy} A${R_ARC},${R_ARC} 0 0,1 ${cx+R_ARC},${cy}`,fill:'none'},arcG);
+        const arcT=el('text',{class:'w-center-arc'},arcG);
+        el('textPath',{href:'#w-arc-path',startOffset:'50%'},arcT);
         setCenterText(centerText);
         if(SKY){
           const cta=el('text',{x:cx,y:cy+R_CENTER-34,class:'w-center-cta'},svg); cta.textContent='небо над вами ›';
@@ -438,7 +455,7 @@
       data.bodies.forEach(b=>{
         const dl=shown[b.id];
         const [x,y]=pol(dl,R_BODY);
-        const g=el('g',{class:'w-body','data-body':b.id,tabindex:'0',role:'button','aria-label':`${b.name}, ${b.formatted}${b.house?', '+b.house+' дом':''}${b.retrograde?', ретроградная':''}`},svg);
+        const g=el('g',{class:'w-body','data-body':b.id,tabindex:'0',role:'button','aria-label':`${b.name}, ${b.formatted}${b.house?', '+b.house+' дом, '+HOUSE_ABOUT[b.house]:''}${b.retrograde?', ретроградная':''}`},svg);
         allBodyTokens.push(g);
         const [lx1,ly1]=pol(dl,R_BODY+17), [lx2,ly2]=pol(b.longitude,R_ZI-1);
         el('line',{x1:lx1,y1:ly1,x2:lx2,y2:ly2,class:'w-body-leader'},g);
@@ -503,7 +520,7 @@
       if(selBody){
         const b=bodyById[selBody];
         let h=`<div class="wc-head"><span class="wc-glyph">${GLYPH[b.id]||''}</span><div><div class="wc-name">${b.name}</div><div class="wc-sub">${b.formatted}</div></div></div>`;
-        h+=`<div class="wc-meta">${b.house?('Дом '+b.house):'нет дома'}${b.retrograde?' · ретроградная':''}</div>`;
+        h+=`<div class="wc-meta">${b.house?('Дом '+b.house+' · '+HOUSE_ABOUT[b.house]):'нет дома'}${b.retrograde?' · ретроградная':''}</div>`;
         const as=data.aspects.filter(a=>a.a===selBody||a.b===selBody);
         if(as.length){
           h+=`<div class="wc-aspects"><div class="wc-aspects-title">Аспекты</div>`;
@@ -531,7 +548,7 @@
       if(selHouse!==null){
         const hs=data.houses?data.houses.find(x=>x.house===selHouse):null;
         const bs=data.bodies.filter(b=>b.house===selHouse);
-        let h=`<div class="wc-head"><div><div class="wc-name">Дом ${selHouse}</div><div class="wc-sub">${hs?hs.formatted:''}</div></div></div>`;
+        let h=`<div class="wc-head"><div><div class="wc-name">Дом ${selHouse} · ${HOUSE_ABOUT[selHouse]}</div><div class="wc-sub">${hs?hs.formatted:''}</div></div></div>`;
         if(bs.length){h+=`<div class="wc-aspects"><div class="wc-aspects-title">Планеты в доме</div>`;bs.forEach(b=>{h+=`<div class="wc-asp">${b.name} · ${b.formatted}</div>`;});h+=`</div>`;}else h+=`<div class="wc-empty">Планет в доме нет</div>`;
         card.innerHTML=h; return;
       }
@@ -544,8 +561,8 @@
         const row=document.createElement('button');
         row.type='button'; row.className='wl-row'; row.setAttribute('data-body',b.id);
         row.setAttribute('role','button'); row.tabIndex=0;
-        row.setAttribute('aria-label',`${b.name}, ${b.formatted}, ${b.house?b.house+' дом':'без дома'}`);
-        row.innerHTML=`<span class="wl-glyph">${GLYPH[b.id]||''}</span><span class="wl-name">${b.name}</span><span class="wl-pos">${b.formatted.replace(/\d+″/,'')}</span><span class="wl-house">${b.house?b.house+' дом':''}</span><span class="wl-retro">${b.retrograde?'R':''}</span>`;
+        row.setAttribute('aria-label',`${b.name}, ${b.formatted}, ${b.house?b.house+' дом, '+HOUSE_ABOUT[b.house]:'без дома'}`);
+        row.innerHTML=`<span class="wl-glyph">${GLYPH[b.id]||''}</span><span class="wl-name">${b.name}</span><span class="wl-pos">${b.formatted.replace(/\d+″/,'')}</span><span class="wl-house" title="${b.house?HOUSE_ABOUT[b.house]:''}">${b.house?b.house+' дом':''}</span><span class="wl-retro">${b.retrograde?'R':''}</span>`;
         row.addEventListener('click',()=>selectBody(b.id));
         row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectBody(b.id);}});
         list.appendChild(row);
@@ -607,7 +624,7 @@
       move('.w-house-cusp, .w-house-num, .w-house-num-hit', layers.houses);
       move('.w-axis, .w-axis-label, .w-axis-arrow', layers.axes);
       move('.w-aspect, .w-aspect-hit, .w-natal', layers.aspects);
-      move('.w-center, .w-center-text-box, .w-center-cta, .w-center-title, .w-center-date, .w-center-place, .w-center-diamond, .w-center-line', layers.center);
+      move('.w-center, .w-center-text-box, .w-center-arc-g, .w-center-cta, .w-center-title, .w-center-date, .w-center-place, .w-center-diamond, .w-center-line', layers.center);
       move('.w-body', layers.bodies);
     }
 
@@ -677,7 +694,17 @@
       // flex-элемент не сжимается уже самого длинного слова, поэтому
       // «единомышленников» растягивает сам блок, а не переполняет его
       div.textContent='';
-      const sp=document.createElement('span'); sp.style.display='block'; sp.textContent=text; div.appendChild(sp);
+      const sp=document.createElement('span'); sp.style.display='block'; div.appendChild(sp);
+      // три строки через \n: фон дня, событие, часы. Фон уходит на дугу над
+      // кругом, в центре — событие и часы. Одна строка (дня без события) — в центре
+      const parts=String(text).split('\n');
+      const arcPath=document.querySelector('.w-center-arc textPath');
+      if(arcPath) arcPath.textContent=parts.length>1?parts[0]:'';
+      if(parts.length===1) sp.textContent=text;
+      else {
+        const add=(cls,t)=>{ const s=document.createElement('span'); if(cls) s.className=cls; s.textContent=t; sp.appendChild(s); };
+        add('',parts[1]); if(parts[2]) add('w-center-when',parts[2]);
+      }
       const box=+div.parentNode.getAttribute('height');
       const fits=()=>sp.offsetWidth<=div.clientWidth && sp.offsetHeight<=box;
       // сначала мельче без переносов: «дру-зей» читается хуже, чем кегль
@@ -685,6 +712,13 @@
       const fit=(from,to)=>{ let size=from; div.style.fontSize=size+'px'; while(size>to && !fits()){ size-=1; div.style.fontSize=size+'px'; } return fits(); };
       sp.style.hyphens='manual';
       if(!fit(30,19)){ sp.style.hyphens='auto'; sp.style.webkitHyphens='auto'; fit(26,14); }
+      // дуга — тем же кеглем, что основная фраза; длинная — мельче, но в
+      // пределах ±62° от верха: дальше она уходит в углы к кнопкам «Небо» и «Игра»
+      if(arcPath && arcPath.textContent){
+        const t=arcPath.parentNode, max=R_ARC*2.16;
+        let size=parseFloat(div.style.fontSize)||24; t.style.fontSize=size+'px';
+        while(size>14 && t.getComputedTextLength()>max){ size-=1; t.style.fontSize=size+'px'; }
+      }
     }
     if(EMBED){
       window.addEventListener('hashchange',()=>{ centerText=centerFromHash(); setCenterText(centerText); });
@@ -735,8 +769,8 @@
         cancelAnimationFrame(moveRaf);
         const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         const stack = document.querySelector('.wheel-stack');
-        const txt = document.querySelector('.w-center-text');
-        if(txt && !reduced){ txt.style.opacity='0'; requestAnimationFrame(()=>requestAnimationFrame(()=>{ txt.style.opacity='1'; })); }
+        const fade = [document.querySelector('.w-center-text'), document.querySelector('.w-center-arc')].filter(Boolean);
+        if(fade.length && !reduced){ fade.forEach(n=>n.style.opacity='0'); requestAnimationFrame(()=>requestAnimationFrame(()=>fade.forEach(n=>{ n.style.opacity='1'; }))); }
         if(reduced) return;
         const items = [...document.querySelectorAll('.w-body')].map(g=>{
           const id=g.getAttribute('data-body');

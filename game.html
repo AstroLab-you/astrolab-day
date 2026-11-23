@@ -1,0 +1,1665 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Полёт к планетам</title>
+<!--
+  ===== ИГРА «ПОЛЁТ К ПЛАНЕТАМ» =====
+
+  Экран приложения «прогноз на день» (tools/natal-calc/app): шаги
+  превращаются в путь корабля от Земли к Плутону. Открывается с экрана
+  дня, системная «Назад» возвращает обратно — как у «Неба» (sky.html).
+
+  Правила — не здесь, а в src/game.ts: сборка кладёт их рядом как
+  game-rules.js (esbuild), страница только рисует то, что вернул replay().
+  Расчёт детерминирован: по шагам за каждый день и выбору на остановках
+  корабль всегда оказывается в одном и том же месте, поэтому хранить
+  положение не нужно — хранятся шаги по дням и выбор.
+
+  Одиночка — весь в телефоне: шаги, выбор, зерно контейнеров лежат
+  в localStorage (astrolab_game) и никуда не уходят. Экипаж живёт на
+  сервере (/api/game, backend/src/modules/game): телефон сдаёт туда свои
+  шаги по дням и голоса, а забирает шаги корабля, решения и экипаж —
+  и считает корабль теми же правилами. Ник и согласие спрашиваются один
+  раз, при первом экипаже; дальше игрок — ключ от сервера (save.secret).
+  Собрать экипаж — со старта или пересадкой на любой стоянке; сесть —
+  по коду друга. Ушёл из экипажа — летит один с того же места
+  (leaveSnapshot). В демо экипаж выключен: настоящую базу оно не трогает,
+  для проверки — свой сервер в localStorage astrolab_api.
+
+  Откуда шаги: плагин Steps (app/android) — Health Connect за 30 дней
+  и свой счётчик телефона, по дню берётся большее. История глубже 30 дней
+  копится здесь же: каждый день, который телефон отдал, запоминается.
+
+  Эталон вида — мокапы game-art/mockups/route-mock.html (карта,
+  стоянки, развилки, контейнер, туман) и scenes-mock.html (старт,
+  прилёт с климатом). Решения Никиты: в тумане никаких значков, на
+  закрытом контейнере нет «?» — закрытый ящик сам значит «неизвестно».
+
+  Решения 2026-10-11: герой выбирается целой наклейкой, а не мордочкой
+  в кружке; путь на развилке — стрелкой на карте (апгрейд — в панели);
+  наклейка климата после прилёта «прилипает» к планете на карте; пока
+  копятся шаги на апгрейд, у корабля значок «работы идут» (works.webp);
+  подарок из контейнера виден на корабле только после открытия.
+
+  Решения 2026-10-12: «работы идут» — манипулятор со сваркой: стоит на
+  краю планеты, головка — на корабле; наклейка климата — на самой
+  планете, а не рядом; корабль садится облётом планеты, без скачка;
+  стрелка развилки только подсвечивает путь (сначала — прямой), улетают
+  или голосуют кнопкой в панели — чтобы случайное касание не решало.
+  Карта приближается и отдаляется двумя пальцами; тап по планете или
+  базе — её описание. Корабль, достроенный на Земле, взлетает по кнопке
+  «Старт!». В бете (сборка для своих) — кнопка «+500 шагов».
+  Кружок игры на экране дня заполняется по ring() из правил (src/game.ts).
+
+  Решения 2026-11-22 (после полёта втроём): ник и
+  героя можно сменить: «Экипаж» / «Друзья» → «Сменить ник и героя»
+  (POST /api/game/me). Код для друзей — только пока есть места; при полном
+  корабле вместо него — где впереди ставится каюта на 5 мест. Пока корабль
+  строится, панель пишет, сколько шагов осталось до старта: экипаж в сборе
+  ещё не летит. У «+500 шагов» — «?» с объяснением.
+
+  Решения 2026-11-22, вечер: у шторок крестик в углу и смахивание вниз
+  за полоску, кнопок «Закрыть» нет. Карта не отдаляется мельче 100%.
+  Пока корабль строится — на планете этап стройки (каркас, обшивка, почти
+  готов), а не полупрозрачный корабль. Аватарки героев — наклейки своей
+  формой, без кружка; в иллюминаторе корабля герой по-прежнему в круге.
+
+  Картинки — game/img (свои права, см. game/LICENSE), координаты звёзд
+  для мерцания — game/space_dark.json.
+
+  Для проверки в браузере: game.html#demo — шаги выдуманные, старт
+  на 25 дней раньше, память отдельная (astrolab_game_demo).
+-->
+<style>
+  /* ===== ПАЛИТРА ===== (как у экрана дня и «Неба») */
+  :root {
+    --bg:          #1A2036;
+    --bg-black:    #0B0E1C;
+    --panel:       rgb(26 32 54 / .9);
+    --sheet:       rgb(22 27 48 / .97);
+    --text:        #F4F1E9;
+    --muted:       rgba(244,241,233,0.62);
+    --line:        rgba(244,241,233,0.14);
+    --tile:        rgba(244,241,233,0.05);
+    --tile-line:   rgba(244,241,233,0.12);
+    --gold:        #C9A45C;
+    --gold-deep:   #B8863B;
+    --gold-soft:   #E0C48C;
+    --gold-pale:   #F3DDA6;
+    --gold-tint:   rgba(224,196,140,0.1);
+    --gold-edge:   rgba(224,196,140,0.45);
+    --ink:         #4A3426;            /* коричневый контур наклеек */
+    --cream:       #FBF1DC;
+    --porthole:    #CFE9F7;
+    --flame-core:  #FFF6D6;
+    --flame-mid:   #FFD36B;
+    --flame-edge:  #F08A4B;
+    --ion-core:    #FFFFFF;
+    --ion-mid:     #B9F2FF;
+    --ion-edge:    #9C8CFF;
+    --boost:       #FFD36B;
+    --banner:      #E0A458;
+    --shade:       rgba(0,0,0,0.45);
+    --font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --glow: drop-shadow(0 0 1px var(--gold-pale)) drop-shadow(0 0 1.5px rgb(224 196 140 / .9)) drop-shadow(0 0 9px rgb(224 196 140 / .4));
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--font); overflow: hidden; user-select: none; -webkit-user-select: none; }
+  img { display: block; }
+  button { font-family: var(--font); }
+  button:focus-visible { outline: 2px solid var(--gold-soft); outline-offset: 2px; }
+
+  /* ===== КАРТА ===== вертикальная лента: Земля внизу, Плутон наверху */
+  .scroll { position: fixed; inset: 0; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; touch-action: pan-x pan-y;
+    background: var(--bg) url(game/img/space_dark.webp) center top repeat; background-attachment: local; }   /* размер — в applyZoom, как у карты */
+  .scroll::-webkit-scrollbar { display: none; }
+  /* зум: .zoom — место под карту в нынешнем масштабе, сама карта масштабируется целиком */
+  .zoom { position: relative; margin: 0 auto; }
+  .map { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; background: var(--bg) url(game/img/space_dark.webp) repeat-y; background-size: 100% auto; }
+
+  /* мерцание: мягкое свечение поверх нарисованных звёзд */
+  .tw { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; pointer-events: none; opacity: 0;
+    mix-blend-mode: screen; animation: tw var(--d) ease-in-out var(--delay) infinite; }
+  @keyframes tw { 0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(.8); } 50% { opacity: var(--peak); transform: translate(-50%, -50%) scale(1); } }
+
+  /* туман: размытая копия фона поверх неизведанного; планеты — силуэтами, без подписей, пути и значков */
+  .fogbg { position: absolute; left: -30px; right: -30px; top: 0; pointer-events: none;
+    background: var(--bg) url(game/img/space_dark.webp) repeat-y; filter: blur(7px) brightness(.72) saturate(.7);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 160px), transparent);
+            mask-image: linear-gradient(to bottom, #000 calc(100% - 160px), transparent);
+    transition: height 1.4s ease; }
+  .body.fogged img { filter: blur(6px) saturate(.6) !important; opacity: .5; }
+  .body.fogged .label, .body.fogged .badge { display: none; }
+  path.fogged { opacity: 0; }
+
+  .route { position: absolute; left: 0; top: 0; width: 100%; overflow: visible; }
+  .route path { fill: none; stroke-width: 3; stroke-linecap: round; transition: opacity .8s; }
+  .route .done { stroke: var(--gold-soft); }
+  .route .ahead { stroke: rgb(224 196 140 / .55); stroke-dasharray: 2 10; }
+  .route .hook { stroke-width: 2.4; }
+
+  .body { position: absolute; transform: translate(-50%, -50%); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .body img { width: 100%; height: auto; filter: var(--glow); transition: filter .8s, opacity .8s; }
+  .label { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px); white-space: nowrap; font: 700 11px var(--font); letter-spacing: .04em;
+    padding: 2px 9px; border-radius: 99px; background: rgb(26 32 54 / .8); color: var(--text); border: 1px solid rgb(224 196 140 / .35); }
+  .body.base .label { font-size: 10px; }
+  .body.arrived::after { content: ''; position: absolute; inset: -8%; border-radius: 50%; border: 2px solid var(--gold-soft); opacity: 0;
+    animation: ring 1.8s ease-out 2; pointer-events: none; }
+  @keyframes ring { 0% { opacity: .9; transform: scale(.9); } 100% { opacity: 0; transform: scale(1.6); } }
+  .badge { position: absolute; right: -10px; top: -12px; z-index: 1; filter: drop-shadow(0 2px 4px var(--shade)); }
+  .badge .dot { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--bg); border: 1.5px solid var(--gold-soft); }
+
+  /* наклейка климата: после прилёта «прилипает» прямо на планету, как на чемодан */
+  .body .souv { position: absolute; top: 44%; width: 46%; z-index: 1; filter: drop-shadow(0 2px 3px var(--shade)); transform: rotate(var(--rot)); }
+  .body .souv.slap { animation: slap .7s cubic-bezier(.3, 1.6, .5, 1) both; }
+  @keyframes slap { 0% { opacity: 0; transform: scale(2.6) rotate(calc(var(--rot) * -2)); } 60% { opacity: 1; } 100% { transform: scale(1) rotate(var(--rot)); } }
+  .body.fogged .souv { display: none; }
+
+  /* развилка: две стрелки на путях от планеты, выбранная — золотая */
+  .fork { all: unset; position: absolute; z-index: 3; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 4px; cursor: pointer; }
+  .fork:focus-visible .arr { outline: 2px solid var(--gold-pale); outline-offset: 3px; }
+  .fork .arr { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: rgb(26 32 54 / .85);
+    border: 2px solid var(--gold-edge); box-shadow: 0 0 14px rgb(224 196 140 / .35); }
+  .fork .arr svg { width: 26px; height: 26px; transform: rotate(var(--ang)); }
+  .fork .arr path { fill: none; stroke: var(--gold-pale); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+  .fork.ask .arr { animation: ask 1.3s ease-in-out infinite; }
+  @keyframes ask { 50% { box-shadow: 0 0 24px rgb(243 221 166 / .8); transform: scale(1.1); } }
+  .fork.on .arr { background: linear-gradient(135deg, var(--gold-deep), var(--gold-soft)); border-color: var(--gold-pale); }
+  .fork.on .arr path { stroke: var(--bg); }
+  .fork.off { opacity: .55; }
+  .route path.dim { opacity: .2; }
+  .route path.pick { stroke: var(--gold-pale); stroke-dasharray: 7 7; opacity: 1; filter: drop-shadow(0 0 4px rgb(243 221 166 / .7)); }
+  .hud .cta { padding: 10px; }
+
+  /* работы идут: манипулятор стоит на планете у корабля и варит его, пока копятся шаги на апгрейд.
+     Обёртка — точка основания на краю планеты, качается вокруг неё; картинка смотрит головкой на корабль */
+  .works { position: absolute; z-index: 3; width: 0; height: 0; pointer-events: none; animation: tinker 1.6s ease-in-out infinite; }
+  .works img { position: absolute; bottom: 0; filter: var(--glow); }
+  @keyframes tinker { 0%, 100% { rotate: 0deg; } 50% { rotate: var(--sway, -5deg); } }
+  .hud .wk { display: inline-block; width: 22px; vertical-align: -5px; margin-right: 4px; }
+
+  /* ===== КОРАБЛЬ ===== корпус + двигатель за ним + модули за ним; пламя и покачивание кодом */
+  .ship { position: absolute; transform: translate(-50%, -50%) rotate(var(--ang, 0deg)) scale(var(--sc, 1)); z-index: 2; pointer-events: none; }
+  .ship.glide { transition: left .9s ease, top .9s ease, transform .9s ease; }
+  .ship .bob { animation: bob 2.6s ease-in-out infinite; }
+  .ship.landed .bob { animation: none; }
+  /* стройка: вместо корабля — его этап (каркас, обшивка, почти готов), по доле собранных шагов */
+  /* крупнее корабля (62): у этапа леса и кран, и вдвое уменьшенный на стоянке, он должен читаться */
+  .ship .stage { width: 84px; filter: var(--glow); }
+  @keyframes bob { 50% { transform: translateY(-5px); } }
+  .rig { position: relative; isolation: isolate; display: grid; justify-items: center; width: var(--w, 62px); }
+  .rig img { width: 100%; height: auto; }
+  /* слои снизу вверх: свечение (копия корпуса с двигателем) → бак и радар → корпус с двигателем */
+  .rig .core { position: relative; z-index: 2; display: grid; justify-items: center; width: 100%; }
+  .rig .halo { position: absolute; left: 0; top: 0; z-index: 0; filter: var(--glow); }
+  .rig .hullbox { position: relative; width: 100%; z-index: 2; }
+  .rig .eng { position: relative; z-index: 1; width: 40%; margin-top: -9%; }
+  .rig .flames { display: flex; justify-content: center; gap: calc(var(--w) * .07); width: 100%; position: relative; z-index: 0; }
+  .rig .flames .flame { width: calc(var(--w) * .13 * var(--f, 1)); }
+  .rig .flame { position: relative; z-index: 0; width: calc(22% * var(--f, 1)); aspect-ratio: 1 / 1.7; margin-top: -3%; border-radius: 50% 50% 50% 50% / 30% 30% 70% 70%;
+    background: radial-gradient(ellipse at 50% 25%, var(--flame-core) 0 25%, var(--flame-mid) 45%, var(--flame-edge) 75%, transparent 76%);
+    transform-origin: 50% 0; animation: flame .18s ease-in-out infinite alternate; transition: opacity .5s; }
+  .rig .flame.ion { background: radial-gradient(ellipse at 50% 25%, var(--ion-core) 0 22%, var(--ion-mid) 42%, var(--ion-edge) 72%, transparent 74%); }
+  .ship.landed .flame, .ship.landed .trail { opacity: 0; }
+  @keyframes flame { from { transform: scaleY(.85) scaleX(1.05); } to { transform: scaleY(1.12) scaleX(.94); } }
+  .rig .mod { position: absolute; z-index: 1; }
+  .rig .tank { left: -22%; top: 24%; width: 34%; }
+  .rig .tank.big { left: -30%; top: 16%; width: 44%; }
+  .rig .radar { right: -26%; top: 2%; width: 40%; }
+  /* разгон из контейнера: пламя длиннее, за кораблём золотой след */
+  .rig.boost .flame { width: calc(22% * var(--f, 1) * 1.45); filter: drop-shadow(0 0 6px var(--boost)); }
+  .rig .trail { position: relative; z-index: -1; width: 14%; height: calc(var(--w) * 1.2); margin-top: -12%; border-radius: 99px;
+    background: linear-gradient(rgb(255 211 107 / .75), rgb(240 138 75 / .25) 55%, transparent); filter: blur(2px); }
+  /* иллюминатор: круг поверх стекла, в нём мордочка героя */
+  .port { position: absolute; transform: translate(-50%, -50%); aspect-ratio: 1; border-radius: 50%; overflow: hidden; background: var(--porthole); }
+  /* герой целиком, чуть крупнее круга: углы картинки срезает круг, а мордочка
+     остаётся в центре у всех зверей — прежнее увеличение со сдвигом вниз
+     у тюленя и крокодила срезало морду, у остальных оставляло макушку */
+  .port img { width: 100%; height: 100%; object-fit: contain; transform: scale(1.15); }
+
+  /* контейнер базы и значок разгона */
+  .crate { display: block; filter: var(--glow); }
+  .crate.open { animation: glowup 1.6s ease-in-out infinite; }
+  @keyframes glowup { 50% { filter: var(--glow) drop-shadow(0 -6px 12px rgb(255 231 160 / .55)); } }
+  .bst { position: relative; display: inline-block; width: var(--w); }
+  .bst img { width: 100%; }
+  .bst b { position: absolute; right: -14%; bottom: -6%; font: 800 calc(var(--w) * .32)/1 var(--font); color: var(--gold-pale);
+    -webkit-text-stroke: 1px var(--ink); paint-order: stroke; text-shadow: 0 1px 2px var(--shade); }
+
+  /* ===== ВЕРХ: назад и подсказки ===== */
+  .back { position: fixed; left: 10px; top: calc(10px + env(safe-area-inset-top)); z-index: 10; width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid var(--line); background: rgb(26 32 54 / .8); color: var(--text); cursor: pointer; display: grid; place-items: center; padding: 0; }
+  .back svg { width: 20px; height: 20px; margin-left: -2px; }   /* оптический центр: у шеврона вес слева */
+  .toast { position: fixed; left: 50%; top: calc(16px + env(safe-area-inset-top)); transform: translate(-50%, -20px); opacity: 0; z-index: 9; pointer-events: none;
+    font: 800 14px var(--font); color: var(--bg); background: linear-gradient(90deg, var(--gold-soft), var(--gold-pale)); padding: 8px 16px; border-radius: 99px;
+    box-shadow: 0 0 18px rgb(224 196 140 / .6); transition: opacity .4s, transform .4s; white-space: nowrap; }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+  /* только в #demo: прибавить дней, чтобы пролететь дальше */
+  .demo { position: fixed; right: 10px; top: calc(58px + env(safe-area-inset-top)); z-index: 10; padding: 9px 14px; border-radius: 99px; cursor: pointer;
+    border: 1px solid var(--gold-edge); background: rgb(26 32 54 / .85); color: var(--gold-pale); font: 700 13px var(--font); }
+  .scene:not([hidden]) ~ .demo { display: none; }
+  .betabox { display: flex; gap: 6px; padding: 0; border: 0; background: none; }
+  .betabox[hidden] { display: none; }
+  .betabox button { all: unset; cursor: pointer; padding: 9px 14px; border-radius: 99px; border: 1px solid var(--gold-edge); background: rgb(26 32 54 / .85); color: var(--gold-pale); font: 700 13px var(--font); }
+  .betabox #plus-info { width: 34px; padding: 9px 0; text-align: center; }
+  .betabox button:focus-visible { outline: 2px solid var(--gold-pale); outline-offset: 2px; }   /* на сценах (старт, прилёт) кнопки беты не мешают заголовку */
+
+  /* ===== ПАНЕЛЬ ВНИЗУ ===== */
+  .hud { all: unset; box-sizing: border-box; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 4;
+    border-radius: 20px; padding: 12px 14px; display: grid; gap: 8px; max-width: 520px; margin: 0 auto;
+    background: var(--panel); border: 1px solid var(--line); color: var(--text); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  .hud.tap { cursor: pointer; }
+  .hud .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .hud .leg { font-weight: 800; font-size: 14px; }
+  .hud .pct { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px; opacity: .8; }
+  .hud .boost { color: var(--boost); font-weight: 800; }
+  .hud .steps { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .hud .note { font-size: 12px; color: var(--gold-soft); }
+  .bar { height: 8px; border-radius: 99px; overflow: hidden; background: var(--tile-line); }
+  .bar i { display: block; height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--gold-deep), var(--gold-soft)); transition: width .6s; }
+  /* аватарка — наклейка героя своей формой, как он нарисован, без кружка (решение 2026-11-22) */
+  .ava { width: 34px; height: 34px; flex: none; }
+  .ava img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 0 1px var(--gold-pale)) drop-shadow(0 0 1px rgb(224 196 140 / .9)); }
+
+  /* ===== СТОЯНКА ===== нижняя панель: что улучшаем и куда летим */
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-width: 560px; margin: 0 auto; max-height: 80%; overflow-y: auto;
+    border-radius: 24px 24px 0 0; padding: 16px 14px calc(14px + env(safe-area-inset-bottom)); display: grid; gap: 12px; color: var(--text);
+    background: var(--sheet); border-top: 1.5px solid rgb(224 196 140 / .55); box-shadow: 0 -10px 30px var(--shade);
+    transform: translateY(105%); transition: transform .5s cubic-bezier(.2, .8, .2, 1); }
+  .sheet.on { transform: translateY(0); }
+  .grab { justify-self: center; width: 38px; height: 4px; border-radius: 99px; background: rgb(244 241 233 / .25); }
+  /* крестик в углу шторки; кнопки «Закрыть» внизу больше нет */
+  .sheet-x { all: unset; position: absolute; right: 10px; top: 8px; width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer;
+    border-radius: 50%; color: var(--muted); font: 400 26px/1 var(--font); }
+  .sheet-x:focus-visible { outline: 2px solid var(--gold-pale); }
+  .sheet.drag { transition: none; }
+  .sheet .head, .sheet .ask-text { padding-right: 30px; }   /* текст не заходит под крестик */
+  .head { display: flex; gap: 12px; align-items: center; }
+  .head img { width: 54px; height: 54px; object-fit: contain; filter: var(--glow); }
+  .head h4 { margin: 0; font-size: 16px; }
+  .head p { margin: 0; font-size: 12px; color: var(--muted); }
+  .q { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); font-weight: 700; }
+  .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+  .opt { all: unset; box-sizing: border-box; cursor: pointer; display: grid; justify-items: center; align-content: start; gap: 3px; text-align: center; padding: 10px 6px 8px;
+    border-radius: 14px; background: var(--tile); border: 1.5px solid var(--tile-line); font-size: 12px; line-height: 1.3; }
+  .opt[aria-checked="true"] { border-color: var(--gold-soft); background: var(--gold-tint); box-shadow: 0 0 14px rgb(224 196 140 / .25); }
+  .opt[aria-disabled="true"] { opacity: .45; cursor: default; }
+  .opt:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .opt .ic { height: 58px; display: grid; place-items: end center; margin-bottom: 2px; }
+  .opt .ic .thumb { width: 40px; filter: var(--glow); }
+  .opt b { font-size: 12.5px; }
+  .opt .price { font-weight: 800; color: var(--gold-soft); font-variant-numeric: tabular-nums; }
+  .opt span { color: var(--muted); font-size: 11px; }
+  .info { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--gold-tint); border: 1px dashed rgb(224 196 140 / .5); font-size: 12px; }
+  .info b { color: var(--gold-soft); }
+  .cta { all: unset; box-sizing: border-box; cursor: pointer; text-align: center; padding: 12px; border-radius: 99px; font-weight: 800; font-size: 14px;
+    color: var(--bg); background: linear-gradient(90deg, var(--gold-deep), var(--gold-soft)); }
+  .cta.ghost { background: var(--tile); color: var(--text); border: 1px solid var(--line); font-weight: 700; }
+  .cta:focus-visible { outline: 2px solid var(--gold-pale); outline-offset: 2px; }
+  .cratebox { display: flex; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--tile); border: 1.5px solid var(--tile-line); font-size: 12px; line-height: 1.35; }
+  .cratebox b { display: block; font-size: 13.5px; }
+  .cratebox span { color: var(--muted); }
+  .cratebox .gift { display: grid; place-items: center; width: 54px; min-height: 54px; }
+
+  /* ===== ПОЛНОЭКРАННЫЕ СЦЕНЫ: старт, прилёт, финиш ===== */
+  .scene { position: fixed; inset: 0; z-index: 8; overflow: hidden; background: var(--bg) url(game/img/space_dark.webp) repeat-y; background-size: 100% auto; container-type: inline-size; }
+  .scene .stage { position: absolute; left: 0; right: 0; top: 0; aspect-ratio: 9 / 18.5; max-height: 100%; }
+  .abs { position: absolute; }
+  .sticker { filter: var(--glow); }
+  .title { position: absolute; left: 0; right: 0; text-align: center; z-index: 4; font-weight: 800; font-size: 22px; line-height: 1.2; text-shadow: 0 2px 12px var(--shade);
+    padding-top: env(safe-area-inset-top); }
+  .title small { display: block; font-size: 13px; font-weight: 600; color: var(--gold-soft); margin-top: 4px; text-shadow: none; }
+  .scene .sheet { transform: none; }
+  /* выбор героя: целые наклейки, у выбранного — свечение и имя */
+  .heroes { display: flex; gap: 4px; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: none; scroll-snap-type: x proximity; }
+  .heroes::-webkit-scrollbar { display: none; }
+  .heroes button { all: unset; flex: none; cursor: pointer; display: grid; justify-items: center; align-content: end; gap: 2px; width: 78px; padding: 6px 2px 4px;
+    border-radius: 16px; border: 1.5px solid transparent; scroll-snap-align: center; font: 700 11px/1.2 var(--font); text-align: center; color: var(--muted); }
+  .heroes button img { width: 64px; height: 64px; object-fit: contain; transition: transform .25s; }
+  .heroes button[aria-checked="true"] { border-color: var(--gold-soft); background: var(--gold-tint); color: var(--gold-pale); }
+  .heroes button[aria-checked="true"] img { filter: var(--glow); transform: scale(1.08); }
+  .heroes button:focus-visible { outline: 2px solid var(--gold-pale); outline-offset: 2px; }
+  .rays { position: absolute; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none;
+    background: repeating-conic-gradient(from 0deg, rgb(243 221 166 / .22) 0 7deg, transparent 7deg 18deg);
+    -webkit-mask-image: radial-gradient(circle, #000 25%, transparent 70%); mask-image: radial-gradient(circle, #000 25%, transparent 70%);
+    animation: spin 40s linear infinite; }
+  @keyframes spin { to { transform: translate(-50%, -50%) rotate(1turn); } }
+  .banner { position: absolute; z-index: 4; }
+  .banner text { font: 800 22px var(--font); fill: var(--ink); }
+  .factcard { position: absolute; left: 14px; right: 14px; z-index: 4; display: grid; gap: 4px; padding: 12px 14px; border-radius: 16px;
+    background: rgb(22 27 48 / .88); border: 1px solid rgb(224 196 140 / .4); font-size: 13px; line-height: 1.45; }
+  .scene .foot { position: absolute; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 5; display: grid; gap: 8px; }
+  .chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+  .chip { font: 700 12px var(--font); padding: 5px 11px; border-radius: 99px; background: rgb(224 196 140 / .14); border: 1px solid var(--gold-edge); color: var(--gold-pale); font-variant-numeric: tabular-nums; }
+
+  /* погода при прилёте: у каждой планеты свой слой частиц */
+  .wx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 3; }
+  .wx i { position: absolute; display: block; }
+  .wx .tint { inset: 0; }
+  .wx .dust { left: -8%; width: var(--s); height: calc(var(--s) * .6); border-radius: 50%; background: #E9A27A; opacity: .75; animation: blow var(--t) linear var(--d) infinite; }
+  @keyframes blow { to { transform: translate(125cqw, var(--dy)); } }
+  .wx .snow { top: -3%; width: var(--s); aspect-ratio: 1; border-radius: 50%; background: #FFFFFF; opacity: .85; animation: snow var(--t) linear var(--d) infinite; }
+  .wx .snow.big { background: #E8F0FF; box-shadow: 0 0 6px #FFFFFF; }
+  @keyframes snow { to { transform: translate(var(--dx), 215cqw); } }
+  .wx .rise { bottom: -3%; width: var(--s); aspect-ratio: 1; border-radius: 50%; background: #D8F1FF; box-shadow: 0 0 5px #BFE6FF; animation: rise var(--t) linear var(--d) infinite; }
+  @keyframes rise { 0% { opacity: 0; } 15% { opacity: .9; } 100% { opacity: 0; transform: translate(var(--dx), -150cqw); } }
+  .wx .ice { width: var(--s); aspect-ratio: 1; background: #E4F5FF; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+    opacity: 0; animation: ice var(--t) ease-in-out var(--d) infinite; }
+  @keyframes ice { 50% { opacity: .95; transform: scale(1.15); } }
+  .wx .streak { left: 100%; width: var(--l); height: 2px; border-radius: 2px; background: linear-gradient(90deg, rgb(255 255 255 / .75), transparent); animation: wind var(--t) linear var(--d) infinite; }
+  @keyframes wind { to { transform: translateX(-135cqw); } }
+  .wx .haze { width: 90cqw; height: 34cqw; border-radius: 50%; background: rgb(243 214 120 / .28); filter: blur(18px); animation: drift 12s ease-in-out var(--d) infinite alternate; }
+  @keyframes drift { to { transform: translateX(var(--dx)); } }
+  .wx .heat { inset: 0; background: repeating-linear-gradient(0deg, transparent 0 14px, rgb(255 220 160 / .035) 12px 20px); animation: heat 2.6s linear infinite; }
+  @keyframes heat { to { background-position: 0 -64px; } }
+  .wx .sun { left: 48%; top: -16%; width: 115cqw; aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle, #FFF8DC 0 16%, rgb(255 214 120 / .6) 28%, rgb(255 180 80 / .16) 50%, transparent 68%); animation: sun 4s ease-in-out infinite; }
+  @keyframes sun { 50% { transform: scale(1.04); filter: brightness(1.1); } }
+  .wx .bolt { width: 13%; opacity: 0; animation: bolt 3.4s linear var(--d) infinite; filter: drop-shadow(0 0 6px #FFF6C8); }
+  .wx .flash { inset: 0; background: #FFFFFF; opacity: 0; animation: flash 3.4s linear var(--d) infinite; }
+  @keyframes bolt { 0%, 84%, 100% { opacity: 0; } 86%, 90% { opacity: 1; } 88% { opacity: .2; } }
+  @keyframes flash { 0%, 84%, 100% { opacity: 0; } 86%, 90% { opacity: .1; } 88% { opacity: 0; } }
+  .wx .frost { inset: 0; box-shadow: inset 0 0 70px 14px rgb(200 235 255 / .35); }
+
+  /* ===== ЭКИПАЖ ===== кнопка сверху, голоса на плитках, вход по коду */
+  .crewbtn { position: fixed; right: 10px; top: calc(10px + env(safe-area-inset-top)); z-index: 10; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px 0 6px;
+    border-radius: 99px; border: 1px solid var(--gold-edge); background: rgb(26 32 54 / .85); color: var(--gold-pale); font: 700 13px var(--font); cursor: pointer; }
+  .faces { display: flex; }
+  .faces .ava { width: 32px; height: 32px; }
+  .faces .ava + .ava { margin-left: -4px; }
+  .opt .who, .fork .who { display: flex; justify-content: center; min-height: 18px; }
+  .opt .who .ava, .fork .who .ava { width: 20px; height: 20px; }
+  .opt .who .ava + .ava, .fork .who .ava + .ava { margin-left: -3px; }
+  .fork .who:empty { display: none; }
+  .crew { display: grid; gap: 8px; }
+  .mate { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: var(--tile); border: 1px solid var(--tile-line); font-size: 13px; }
+  .mate .ava { width: 40px; height: 40px; }
+  .mate b { display: block; font-size: 14px; }
+  .mate span { color: var(--muted); font-size: 12px; }
+  .mate .tag { margin-left: auto; font-size: 11px; color: var(--gold-soft); font-weight: 700; }
+  .mate.empty { border-style: dashed; color: var(--muted); justify-content: center; }
+  .code { text-align: center; font: 800 28px/1.2 ui-monospace, 'SF Mono', Menlo, monospace; letter-spacing: .12em; color: var(--gold-pale); padding: 10px; border-radius: 14px;
+    background: var(--gold-tint); border: 1px dashed var(--gold-edge); user-select: text; -webkit-user-select: text; }
+  .field { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+  .field input { all: unset; box-sizing: border-box; padding: 11px 14px; border-radius: 12px; background: var(--tile); border: 1.5px solid var(--tile-line); color: var(--text); font: 600 16px var(--font); }
+  .field input:focus { border-color: var(--gold-soft); }
+  .field input.code-in { text-transform: uppercase; letter-spacing: .15em; font-family: ui-monospace, Menlo, monospace; text-align: center; }
+  .agree { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; line-height: 1.45; color: var(--muted); cursor: pointer; }
+  .agree input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--gold); }
+  .agree a { color: var(--gold-soft); }
+  .link { all: unset; cursor: pointer; justify-self: center; font: 700 13px var(--font); color: var(--gold-soft); padding: 4px 8px; }
+  .link.danger { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .sheet p.small { margin: 0 2px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+  .cta[disabled] { opacity: .45; cursor: default; }
+  .err { font-size: 12px; color: var(--flame-edge); text-align: center; min-height: 1em; }
+
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="scroll" id="scroll"><div class="zoom" id="zoom"><div class="map" id="map"></div></div></div>
+<button class="back" id="back" type="button" aria-label="Назад"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
+<div class="toast" id="toast" role="status"></div>
+<button class="crewbtn" id="crewbtn" type="button" hidden></button>
+<button class="hud" id="hud" type="button" hidden></button>
+<div class="sheet" id="sheet" role="dialog" aria-label="Стоянка"></div>
+<div class="scene" id="scene" hidden></div>
+<button class="demo" id="demo" type="button" hidden>+3 дня шагов</button>
+<div class="demo betabox" id="plus" hidden><button type="button" id="plus-add">+500 шагов</button><button type="button" id="plus-info" aria-label="Что это за кнопка">?</button></div>
+
+<script type="module">
+import { replay, options, split, gift, legLength, daysToNext, snapshot, leaveSnapshot, BASES, MENU, FINAL, RULES } from './game-rules.js';
+
+// ===== СПРАВОЧНИК =====
+const IMG = 'game/img/';
+// id, название, размер на карте (px), «на кого» (прилетели на …), «на ком» (стоянка на …)
+const STOPS = [
+  ['earth', 'Земля', 118, 'Землю', 'Земле'], ['moon', 'Луна', 78, 'Луну', 'Луне'], ['venus', 'Венера', 96, 'Венеру', 'Венере'],
+  ['mercury', 'Меркурий', 74, 'Меркурий', 'Меркурии'], ['mars', 'Марс', 92, 'Марс', 'Марсе'], ['ceres', 'Церера', 80, 'Цереру', 'Церере'],
+  ['jupiter', 'Юпитер', 132, 'Юпитер', 'Юпитере'], ['saturn', 'Сатурн', 146, 'Сатурн', 'Сатурне'], ['uranus', 'Уран', 104, 'Уран', 'Уране'],
+  ['neptune', 'Нептун', 100, 'Нептун', 'Нептуне'], ['pluto', 'Плутон', 68, 'Плутон', 'Плутоне'],
+];
+const BASE_NAME = { phobos: 'Фобос', europa: 'Европа', titan: 'Титан' };
+const XS = [0.5, 0.28, 0.68, 0.32, 0.66, 0.3, 0.62, 0.36, 0.66, 0.32, 0.55];   // где по ширине стоит планета
+const GAP = 280, TOP = 160, BOTTOM = 300, BASE_SIZE = 58;
+
+const HEROES = { panda: 'Панда', fox: 'Лисёнок', frog: 'Лягушонок', duck: 'Утёнок', chick: 'Цыплёнок', penguin: 'Пингвин', owl: 'Совёнок',
+  hamster: 'Хомяк', lion: 'Львёнок', cow: 'Корова', pig: 'Поросёнок', sheep: 'Овечка', monkey: 'Обезьянка', giraffe: 'Жираф',
+  hippo: 'Бегемот', croc: 'Крокодил', dino: 'Динозаврик', seal: 'Тюлень', polarbear: 'Белый медвежонок' };
+// иллюминаторы кораблей: доли картинки корпуса (x, y, диаметр)
+const PORTS = { ship_1seat: [[.493, .42, .15]], ship_3seat: [[.279, .468, .1], [.496, .468, .1], [.713, .468, .1]],
+  ship_5seat: [[.271, .406, .092], [.494, .406, .092], [.716, .406, .092], [.349, .584, .092], [.639, .584, .092]] };
+
+const ENGINES = ['Сопло', 'Усиленный', 'Мощный', 'Двойной', 'Турбо', 'Ионный'];   // название ступени 1…6
+const TANKS = ['Встроенный бак', 'Запасной бак', 'Большой бак'];
+const GIFT = {
+  engine: { name: 'Двигатель', sub: 'ступень вверх — вдвое быстрее насовсем' },
+  boost:  { name: 'Разгон ×2', sub: 'до следующей планеты летим вдвое быстрее' },
+  tank:   { name: 'Бак', sub: 'ступень бака вверх, лишние шаги не сгорают' },
+  radar:  { name: 'Радар', sub: 'видно на остановку дальше и что в контейнерах' },
+};
+// климат при прилёте: факт и наклейка-особенность (у остальных — только погода)
+const CLIMATE = {
+  earth:   { fact: 'Единственная известная планета, где есть жизнь, — и шагомеры. Отсюда стартуют все корабли.' },
+  moon:    { fact: 'Воздуха нет: здесь тихо, ветра не бывает, и следы астронавтов лежат уже больше 50 лет.' },
+  venus:   { fact: 'Самая жаркая планета: +465°. Облака — из серной кислоты, а под ними вулканы.', sticker: 'climate_venus' },
+  mercury: { fact: 'Солнце здесь в 2–3 раза больше, чем с Земли. Днём +430°, ночью −180°.' },
+  mars:    { fact: 'Пылевые бури бывают на всю планету, а пылевые смерчи — выше Эвереста.', sticker: 'climate_mars' },
+  ceres:   { fact: 'Карликовая планета с ледяным вулканом и яркими пятнами из соли.', sticker: 'climate_ceres' },
+  jupiter: { fact: 'Большое красное пятно — буря больше Земли, её видят в телескоп больше 150 лет. И здесь сверкают молнии.' },
+  saturn:  { fact: 'Кольца — из кусочков льда: от песчинки до дома. А на полюсе крутится буря-шестиугольник.', sticker: 'climate_saturn' },
+  uranus:  { fact: 'Лежит на боку: на полюсе 42 года день, потом 42 года ночь. Холод до −224°.' },
+  neptune: { fact: 'Самые быстрые ветры в Солнечной системе — до 2 000 км/ч. И тёмные вихри размером с Землю.', sticker: 'climate_neptune' },
+  pluto:   { fact: 'Ледник в форме сердца — из замёрзшего азота. На горах лежит снег.' },
+};
+
+// ===== ПАМЯТЬ =====
+// Только своё: шаги по дням с начала полёта, выбор на остановках, зерно контейнеров
+// и что игрок уже видел (где был корабль, какие контейнеры открыл). Наружу не уходит.
+const DEMO = location.hash === '#demo';
+// бета — сборка для своих: кнопка «+500 шагов», чтобы пролететь дальше, не выходя на улицу.
+// Обычная сборка строку не трогает, сборка беты подменяет её на '1'
+const BETA = DEMO || '__GAME_BETA__' === '1';
+const KEY = DEMO ? 'astrolab_game_demo' : 'astrolab_game';
+const Store = {
+  get() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* без памяти — без запоминания */ } },
+};
+// snap — откуда летит одиночка, если он не с Земли (ушёл из экипажа); secret — ключ игрока
+// на сервере экипажей, nick — его ник; crew — корабль экипажа: последний ответ сервера и что видел игрок;
+// bonus — шаги, прибавленные в бете кнопкой, по дням (сверх того, что насчитал телефон)
+const fresh = () => ({ v: 1, hero: 'panda', seed: null, start: null, snap: null, choices: {}, hooks: {}, steps: {}, seen: { u: 0, stop: 0, gifts: {} },
+  secret: null, nick: '', crew: null, bonus: {} });
+let save = Object.assign(fresh(), Store.get() || {});
+const persist = () => Store.set(save);
+const newSeed = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+
+// ===== ЭКИПАЖ: СЕРВЕР =====
+// Одиночка живёт в телефоне целиком. Экипаж — на сервере (/api/game,
+// backend/src/modules/game): он складывает шаги друзей и хранит голоса,
+// а правила по-прежнему считает телефон — по шагам корабля и решениям.
+// Игрок — секрет, который сервер выдал при первом экипаже; входа нет.
+const API = (() => { try { return localStorage.getItem('astrolab_api'); } catch (e) { return null; } })() || 'https://astrolab.you/api';
+// демо в браузере в настоящую базу не пишет: экипаж в нём — только с явно указанным своим сервером
+const CREW_READY = !DEMO || API !== 'https://astrolab.you/api';
+const BACKFILL = 8;          // сколько дней назад сервер принимает шаги (BACKFILL_DAYS)
+async function api(method, path, body) {
+  const headers = {};
+  if (body) headers['content-type'] = 'application/json';
+  if (save.secret) headers.authorization = 'Bearer ' + save.secret;
+  let r;
+  try { r = await fetch(API + '/game' + path, { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' }); }
+  catch (e) { throw Object.assign(new Error('Нет связи с сервером'), { code: 'offline' }); }
+  const j = r.status === 204 ? {} : await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.message || 'Сервер не ответил'), { code: j.error, status: r.status });
+  return j;
+}
+const inCrew = () => !!(save.crew && save.crew.view && save.crew.view.ship);
+
+// ===== ДАТЫ И ЧИСЛА =====
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const shift = (day, n) => { const [y, m, d] = day.split('-').map(Number); return ymd(new Date(y, m - 1, d + n)); };
+const today = () => ymd(new Date());
+const fmt = n => Math.round(n).toLocaleString('ru-RU');
+const plural = (n, one, few, many) => { const a = n % 10, b = n % 100; return b >= 11 && b <= 19 ? many : a === 1 ? one : a >= 2 && a <= 4 ? few : many; };
+const stepsWord = n => plural(n, 'шаг', 'шага', 'шагов');
+const daysWord = n => plural(n, 'день', 'дня', 'дней');
+
+// ===== ШАГИ =====
+// Health Connect (с часами на руке) и свой счётчик телефона; по каждому дню — большее.
+const Steps = (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Steps) || null;
+let stepsState = 'wait';    // ok | denied | none | web
+
+let phone = {};        // шаги по дням, как их отдал телефон в последний раз
+async function readSteps() {
+  if (DEMO) {
+    // выдуманные, но одни и те же: 3 000…12 000 в день
+    const h = {};
+    for (let d = shift(today(), -150); d <= today(); d = shift(d, 1)) {
+      let x = 0; for (const ch of d) x = (x * 31 + ch.charCodeAt(0)) % 9973;
+      h[d] = d === today() ? 4200 : 3000 + (x * 7919) % 9000;
+    }
+    stepsState = 'ok';
+    return h;
+  }
+  if (!Steps) { stepsState = 'web'; return {}; }
+  const [own, hc] = await Promise.all([
+    Steps.today().catch(() => null),
+    Steps.health ? Steps.health().catch(() => null) : Promise.resolve(null),
+  ]);
+  const h = {}, put = hist => { for (const [d, n] of Object.entries(hist || {})) h[d] = Math.max(h[d] || 0, +n || 0); };
+  const ownOk = own && own.sensor && own.permission === 'granted' && !own.error;
+  if (ownOk) { put(own.history); if (own.day) h[own.day] = Math.max(h[own.day] || 0, +own.steps || 0); }
+  if (hc && hc.granted) put(hc.history);
+  stepsState = ownOk || (hc && hc.granted) ? 'ok' : own && own.sensor === false && !(hc && hc.granted) ? 'none' : 'denied';
+  return h;
+}
+
+// бета: прибавка кнопкой идёт сверху шагов телефона — и в свою историю, и экипажу
+function addBonus(h) {
+  const out = { ...h };
+  for (const [d, n] of Object.entries(save.bonus || {})) out[d] = (out[d] || 0) + n;
+  return out;
+}
+
+// сливаем со своей историей: день, который телефон уже забыл (старше 30 дней), остаётся
+function mergeSteps(h) {
+  if (!save.start) return;
+  for (const [d, n] of Object.entries(h)) if (d >= save.start && d <= today()) save.steps[d] = Math.max(save.steps[d] || 0, n);
+}
+
+// ===== РАСЧЁТ =====
+// G — откуда берутся выбор, зерно и «что видел игрок»: у одиночки — из памяти,
+// у экипажа — из ответа сервера. Карта и панели читают только G.
+let S = null, G = null;
+function compute() {
+  if (inCrew()) {
+    const sh = save.crew.view.ship, hooks = Object.fromEntries(sh.hooks.map(k => [k, true]));
+    const counted = Object.fromEntries(sh.days.map(d => [d.day, d.counted]));
+    S = replay({ start: sh.start || undefined, days: sh.days, choices: sh.choices, hooks, seed: sh.seed });
+    // сел на борт посреди пути — путь до посадки не проигрываем
+    if (!save.crew.seen) { save.crew.seen = { u: S.at, stop: S.stop, gifts: Object.fromEntries(Object.keys(S.gifts).map(i => [i, true])) }; persist(); }
+    G = { crewMode: true, ship: sh, choices: sh.choices, hooks, seed: sh.seed, seen: save.crew.seen, crew: sh.crew.map(c => c.hero),
+      start: sh.startDay, counted: d => counted[d] || 0 };
+    return;
+  }
+  G = { crewMode: false, choices: save.choices, hooks: save.hooks, seed: save.seed, seen: save.seen, crew: [save.hero],
+    start: save.start, counted: d => split(save.steps[d] || 0).counted };
+  if (!save.start) { S = null; return; }
+  const days = [];
+  for (let d = save.start; d <= today(); d = shift(d, 1)) days.push({ day: d, ...split(save.steps[d] || 0) });
+  S = replay({ start: save.snap || undefined, days, choices: save.choices, hooks: save.hooks, seed: save.seed });
+}
+// средний темп корабля: засчитанные шаги за последние 7 дней (без сегодняшнего, если есть прошлые)
+function pace() {
+  const ds = [];
+  for (let d = shift(today(), -7); d < today(); d = shift(d, 1)) if (d >= G.start) ds.push(G.counted(d));
+  if (!ds.length) return G.counted(today()) || RULES.norm * S.seats;
+  return ds.reduce((a, b) => a + b, 0) / ds.length;
+}
+const hullOf = s => `ship_${s.seats}seat`;
+const shipLook = s => ({ seats: s.seats, engine: s.engine, tank: s.tankLevel, radar: s.radar });
+
+// ===== КАРТИНКИ =====
+// корабль в сборе: модули и двигатель лежат слоем за корпусом, герои — в иллюминаторах
+function rig({ seats = 1, engine = 0, tank = 0, radar = false, w = 62, flame = 1, boost = false, crew = [] } = {}) {
+  const hull = `ship_${seats}seat`;
+  const ports = (PORTS[hull] || []).map(([x, y, d], i) => crew[i]
+    ? `<div class="port" style="left:${x * 100}%;top:${y * 100}%;width:${d * 100}%"><img src="${IMG}hero_${crew[i]}.webp" alt=""></div>` : '').join('');
+  const eng = engine ? `<img class="eng" src="${IMG}engine_${engine}.webp" alt="">` : '';
+  const fl = `<div class="flame${engine === 6 ? ' ion' : ''}"></div>`;
+  return `<div class="rig${boost ? ' boost' : ''}" style="--w:${w}px;--f:${flame}">
+    <div class="core halo" aria-hidden="true"><img src="${IMG}${hull}.webp" alt="">${eng}</div>
+    ${tank ? `<img class="mod tank${tank === 2 ? ' big' : ''}" src="${IMG}tank_${tank === 2 ? 'big' : 'normal'}.webp" alt="">` : ''}
+    ${radar ? `<img class="mod radar" src="${IMG}radar.webp" alt="">` : ''}
+    <div class="core"><div class="hullbox"><img src="${IMG}${hull}.webp" alt="">${ports}</div>${eng}
+    ${flame ? (engine === 4 ? `<div class="flames">${fl}${fl}</div>` : fl) : ''}${flame && boost ? '<div class="trail"></div>' : ''}</div></div>`;
+}
+// контейнер: открытая картинка шире закрытой из-за крышки — 1.11, чтобы ящик остался того же размера
+const crate = (open, w = 60) => `<img class="crate${open ? ' open' : ''}" src="${IMG}crate_${open ? 'open' : 'closed'}.webp" alt="" style="width:${Math.round(open ? w * 1.11 : w)}px">`;
+function giftPic(g, s, w = 46) {
+  if (g === 'engine') return `<img src="${IMG}engine_${Math.max(1, Math.min(s.engine, 6))}.webp" alt="" style="width:${w * .6}px">`;
+  if (g === 'tank') return `<img src="${IMG}tank_${s.tankLevel >= 2 ? 'big' : 'normal'}.webp" alt="" style="width:${w * .7}px">`;
+  if (g === 'radar') return `<img src="${IMG}radar.webp" alt="" style="width:${w}px">`;
+  return `<span class="bst" style="--w:${w}px"><img src="${IMG}boost.webp" alt=""><b>×2</b></span>`;
+}
+
+// ===== КАРТА =====
+const scroll = document.getElementById('scroll'), map = document.getElementById('map');
+const NS = 'http://www.w3.org/2000/svg';
+let W, H, paths, bodies, baseEls, shipEl, fogbg, souvs, worksEl, forkEls = [], TWINKLE = [];
+const pt = i => ({ x: XS[i] * W, y: H - BOTTOM - i * GAP });
+// база — на середине крюка: отступ от середины прямого перегона по перпендикуляру так,
+// чтобы две половины крюка вместе были ≈ в 1,3 раза длиннее прямой (0,65 хорды на половину)
+const basePt = i => {
+  const a = pt(i), b = pt(i + 1), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const dx = b.x - a.x, dy = b.y - a.y, c = Math.hypot(dx, dy), h = c * Math.sqrt(0.65 ** 2 - 0.25);
+  let nx = -dy / c, ny = dx / c;
+  if ((mx + nx * h > W - 40) || (mx + nx * h < 40)) { nx = -nx; ny = -ny; }
+  return { x: Math.max(40, Math.min(W - 40, mx + nx * h)), y: my + ny * h };
+};
+
+function build() {
+  W = scroll.clientWidth || innerWidth;
+  H = TOP + BOTTOM + GAP * (STOPS.length - 1);
+  map.style.width = W + 'px'; map.style.height = H + 'px';
+  map.innerHTML = '';
+  // мерцание: звёзды фона повторяются плиткой высотой в две ширины
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, th = W * 2;
+  for (let k = 0; k * th < H + th; k++) for (const s of TWINKLE) {
+    const el = document.createElement('i'), size = Math.max(s.r * W * (s.k === 'star' ? 3.4 : 4.2), 9), c = s.c || '#F3E3A8';
+    el.className = 'tw';
+    el.style.cssText = `left:${s.x * W}px;top:${k * th + s.y * th}px;width:${size}px;height:${size}px;` +
+      `background:radial-gradient(circle, ${c} 0, ${c}66 35%, transparent 70%);` +
+      `--d:${(3 + rnd() * 4).toFixed(2)}s;--delay:${(-rnd() * 7).toFixed(2)}s;--peak:${(0.3 + rnd() * 0.15).toFixed(2)}`;
+    map.appendChild(el);
+  }
+  fogbg = document.createElement('div');
+  fogbg.className = 'fogbg';
+  fogbg.style.backgroundSize = `${W}px auto`;
+  fogbg.style.backgroundPosition = '30px 0';
+  map.appendChild(fogbg);
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'route'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.height = H + 'px';
+  const curve = (a, b, k = 0.55) => `M${a.x},${a.y} C${a.x},${a.y - (a.y - b.y) * k} ${b.x},${b.y + (a.y - b.y) * k} ${b.x},${b.y}`;
+  paths = {};
+  const addPath = (key, d, r0, r1, extra = '') => {
+    const ahead = document.createElementNS(NS, 'path'), done = document.createElementNS(NS, 'path');
+    ahead.setAttribute('d', d); ahead.setAttribute('class', 'ahead ' + extra);
+    done.setAttribute('d', d); done.setAttribute('class', 'done ' + extra);
+    svg.append(ahead, done);
+    paths[key] = { ahead, done, r0, r1, L: 0 };
+  };
+  for (let i = 0; i < FINAL; i++) addPath('leg' + i, curve(pt(i), pt(i + 1)), STOPS[i][2] / 2, STOPS[i + 1][2] / 2);
+  for (const i in BASES) {
+    const b = basePt(+i);
+    addPath('out' + i, curve(pt(+i), b), STOPS[i][2] / 2, BASE_SIZE / 2, 'hook');
+    addPath('in' + i, curve(b, pt(+i + 1)), BASE_SIZE / 2, STOPS[+i + 1][2] / 2, 'hook');
+  }
+  map.appendChild(svg);
+  Object.values(paths).forEach(p => p.L = p.done.getTotalLength());
+
+  const place = (img, name, size, p, cls = '') => {
+    const el = document.createElement('div');
+    el.className = 'body ' + cls;
+    el.style.cssText = `left:${p.x}px;top:${p.y}px;width:${size}px`;
+    el.innerHTML = `<img src="${IMG}${img}.webp" alt="${name}"><span class="label">${name}</span>`;
+    map.appendChild(el);
+    return el;
+  };
+  bodies = STOPS.map(([id, name, size], i) => place(id, name, size, pt(i)));
+  bodies.forEach((el, i) => el.addEventListener('click', () => openBody(i)));
+  // наклейка климата — на самой планете, снизу с внешней стороны: пути и крюк к базе уходят вверх и внутрь
+  souvs = {};
+  STOPS.forEach(([id], i) => {
+    const c = CLIMATE[id];
+    if (!c || !c.sticker) return;
+    const el = document.createElement('img'), left = XS[i] < .5;
+    el.className = 'souv'; el.src = IMG + c.sticker + '.webp'; el.alt = '';
+    el.style.cssText = `${left ? 'left' : 'right'}:6%;--rot:${left ? -12 : 12}deg`;
+    el.hidden = true;
+    bodies[i].appendChild(el);
+    souvs[i] = el;
+  });
+  baseEls = {};
+  for (const i in BASES) {
+    baseEls[i] = place(BASES[i], BASE_NAME[BASES[i]] + ' · база', BASE_SIZE, basePt(+i), 'base');
+    baseEls[i].insertAdjacentHTML('beforeend', '<div class="badge"></div>');
+    baseEls[i].addEventListener('click', () => openBaseInfo(+i));
+  }
+  shipEl = document.createElement('div');
+  shipEl.className = 'ship';
+  map.appendChild(shipEl);
+  worksEl = document.createElement('div');
+  worksEl.className = 'works'; worksEl.hidden = true;
+  worksEl.innerHTML = `<img src="${IMG}works.webp" alt="">`;
+  map.appendChild(worksEl);
+  forkEls = [];
+  applyZoom();
+}
+
+// ===== ЗУМ ===== двумя пальцами (на компьютере — ctrl + колесо): карта масштабируется
+// целиком, а прокрутка держит под пальцами ту же точку карты. Мельче 100% карта
+// не отдаляется (решение 2026-11-22): уменьшенная, она теряется на фоне неба
+const zoomEl = document.getElementById('zoom');
+let Z = 1;
+const ZMIN = 1, ZMAX = 2.5;
+function applyZoom() {
+  map.style.transform = Z === 1 ? '' : `scale(${Z})`;
+  scroll.style.backgroundSize = `${W * Z}px auto`;   // небо под картой совпадает с её собственным
+  zoomEl.style.width = W * Z + 'px'; zoomEl.style.height = H * Z + 'px';
+}
+function zoomAt(z, cx, cy) {   // cx, cy — точка на экране, которая остаётся на месте
+  const r = scroll.getBoundingClientRect();
+  const mx = (scroll.scrollLeft + cx - r.left - zoomEl.offsetLeft) / Z, my = (scroll.scrollTop + cy - r.top) / Z;
+  Z = Math.max(ZMIN, Math.min(ZMAX, z));
+  applyZoom();
+  scroll.scrollLeft = mx * Z + zoomEl.offsetLeft - (cx - r.left);
+  scroll.scrollTop = my * Z - (cy - r.top);
+}
+let pinch = null;
+const fingers = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+scroll.addEventListener('touchstart', e => { if (e.touches.length === 2) pinch = { d: fingers(e.touches), z: Z }; }, { passive: true });
+scroll.addEventListener('touchmove', e => {
+  if (!pinch || e.touches.length !== 2) return;
+  e.preventDefault();
+  const t = e.touches;
+  zoomAt(pinch.z * fingers(t) / pinch.d, (t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2);
+}, { passive: false });
+scroll.addEventListener('touchend', e => { if (e.touches.length < 2) pinch = null; });
+scroll.addEventListener('wheel', e => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  zoomAt(Z * Math.exp(-e.deltaY * .01), e.clientX, e.clientY);
+}, { passive: false });
+
+// точка на пути: корабль взлетает с края планеты и садится на край
+function onPath(key, t) {
+  const p = paths[key], m0 = p.r0 + 34, m1 = p.r1 + 34;
+  const at = m0 + (p.L - m0 - m1) * Math.max(0, Math.min(t, 1));
+  const a = p.done.getPointAtLength(Math.max(at - 2, 0)), b = p.done.getPointAtLength(Math.min(at + 2, p.L)), c = p.done.getPointAtLength(at);
+  return { x: c.x, y: c.y, at, ang: Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI + 90 };
+}
+// Полёт по перегону: взлёт с макушки планеты, путь и заход на посадку.
+// Путь входит в цель снизу, а стоит корабль на макушке — без облёта он
+// в последний миг перескакивал через всю планету. Поэтому в конце перегона
+// корабль облетает цель полукругом: планету — с внешней стороны, базу —
+// с внутренней, чтобы не уйти за край экрана; на планету садится вдвое меньше.
+const ARC = .4;   // облёт проходится быстрее пути: его длина весит меньше в доле перегона
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min((x - a) / (b - a), 1)); return t * t * (3 - 2 * t); };
+const turn = a => ((a + 180) % 360 + 360) % 360 - 180;
+const heading = (dx, dy) => Math.atan2(dy, dx) * 180 / Math.PI + 90;
+function flyPos(key, t) {
+  const p = paths[key], fromBase = key[0] === 'i', toBase = key[0] === 'o';
+  const m0 = p.r0 + (fromBase ? 34 : 22), m1 = p.r1 + 34, line = p.L - m0 - m1;
+  const c = p.done.getPointAtLength(p.L), e = p.done.getPointAtLength(p.L - m1), e0 = p.done.getPointAtLength(p.L - m1 - 3);
+  const R0 = m1, R1 = toBase ? m1 : p.r1 + 22;
+  const a0 = Math.atan2(e.y - c.y, e.x - c.x), a1 = (toBase ? c.x > W / 2 : c.x < W / 2) ? Math.PI * 1.5 : -Math.PI / 2;
+  const arc = Math.abs(a1 - a0) * (R0 + R1) / 2, s = (line + arc * ARC) * Math.max(0, Math.min(t, 1));
+  if (s <= line) {
+    const at = m0 + s, a = p.done.getPointAtLength(Math.max(at - 2, 0)), b = p.done.getPointAtLength(at + 2), q = p.done.getPointAtLength(at);
+    return { x: q.x, y: q.y, at, ang: heading(b.x - a.x, b.y - a.y), sc: fromBase ? 1 : .5 + .5 * smooth(0, 40, s) };
+  }
+  const f = (s - line) / (arc * ARC), th = a0 + (a1 - a0) * f, R = R0 + (R1 - R0) * f;
+  // курс: с пути плавно на касательную, к концу — носом вверх, как стоит на планете
+  const tang = heading((a1 - a0) * R * -Math.sin(th) + (R1 - R0) * Math.cos(th), (a1 - a0) * R * Math.cos(th) + (R1 - R0) * Math.sin(th));
+  const in0 = heading(e.x - e0.x, e.y - e0.y), a = in0 + turn(tang - in0) * smooth(0, .3, f);
+  return { x: c.x + R * Math.cos(th), y: c.y + R * Math.sin(th), at: p.L - m1 + m1 * f,
+    ang: turn(a) * (1 - smooth(.55, 1, f)), sc: toBase ? 1 : 1 - .5 * smooth(.2, 1, f) };
+}
+const hooked = k => !!G.hooks[k] && k in BASES;
+// u — положение на маршруте: номер остановки + доля перегона; на крюке база ровно на середине
+function where(u) {
+  const k = Math.min(Math.floor(u), FINAL), f = u - k;
+  if (k >= FINAL || f <= 0) return null;
+  if (hooked(k)) return f < 0.5 ? { key: 'out' + k, t: f * 2 } : { key: 'in' + k, t: (f - 0.5) * 2 };
+  return { key: 'leg' + k, t: f };
+}
+
+let shown = 0;      // где корабль на экране сейчас (во время анимации отстаёт от S.at)
+// Подарок базы ставится на корабль, когда игрок открыл контейнер, — не раньше:
+// пока ящик закрыт, корабль на экране без него (расчёт его уже учёл).
+function looks() {
+  const l = shipLook(S); let boost = S.boost > 1;
+  for (const [i, g] of Object.entries(S.gifts)) {
+    if (G.seen.gifts[i]) continue;
+    if (g === 'engine') l.engine--; else if (g === 'tank') l.tank--; else if (g === 'radar') l.radar = false; else boost = false;
+  }
+  return { ...l, boost };
+}
+// Стройка: на стоянке выбран новый корабль — одноместный на Земле или пересадка
+// в экипаж. Пока шаги на него копятся, вместо корабля — этап стройки по доле
+// собранного: каркас, обшивка, почти готов (картинки build_*, как в мокапе
+// route-mock). Собран — корабль целиком. 0 — не строится.
+const STAGES = ['build_1_frame', 'build_2_plating', 'build_3_almost'];
+function buildStage(u) {
+  const k = Math.min(Math.floor(u), FINAL), c = G.choices[k];
+  if (where(u) || S.phase !== 'stop' || k !== S.stop || (c !== 'solo' && c !== 'crew')) return 0;
+  const cost = (options(S).find(o => o.choice === c) || { cost: 0 }).cost, f = cost ? S.paid / cost : 1;
+  return f >= 1 ? 0 : f < 1 / 3 ? 1 : f < 2 / 3 ? 2 : 3;
+}
+function drawShip(u) {
+  const landed = !where(u), l = looks(), stage = buildStage(u);
+  shipEl.innerHTML = stage ? `<img class="stage" src="${IMG}${STAGES[stage - 1]}.webp" alt="Корабль строится">`
+    : `<div class="bob">${rig({ ...l, crew: G.crew, w: 62, boost: l.boost && !landed, flame: landed ? 0 : l.boost ? 1.3 : 1 })}</div>`;
+  shipEl.classList.toggle('landed', landed);
+}
+
+function render(u, follow) {
+  // пройденные пути
+  const k = Math.min(Math.floor(u), FINAL), here = where(u);
+  for (const [key, p] of Object.entries(paths)) {
+    const m = key.match(/^(leg|out|in)(\d+)$/), i = +m[2];
+    const used = m[1] === 'leg' ? !hooked(i) : hooked(i);
+    let len = used && i < k ? p.L : 0;
+    if (here && here.key === key) len = flyPos(key, here.t).at;
+    if (here && m[1] === 'out' && i === k && here.key === 'in' + i) len = p.L;
+    p.done.style.strokeDasharray = `${len} ${p.L}`;
+  }
+  // туман: видно следующую остановку, с радаром — ещё одну
+  const visible = S.visible;
+  bodies.forEach((el, i) => el.classList.toggle('fogged', i > visible));
+  for (let i = 0; i < FINAL; i++) paths['leg' + i].ahead.classList.toggle('fogged', i >= visible);
+  for (const i in BASES) {
+    const fog = +i > visible - 1;
+    baseEls[i].classList.toggle('fogged', fog);
+    ['out', 'in'].forEach(x => paths[x + i].ahead.classList.toggle('fogged', fog));
+    // значок у базы: закрытый контейнер, с радаром — что внутри; после стыковки пропадает
+    const badge = baseEls[i].querySelector('.badge');
+    badge.innerHTML = S.gifts[i] || +i < k ? '' : S.radar ? `<div class="dot">${giftPic(gift(G.seed, +i, S), S, 22)}</div>` : crate(false, 28);
+  }
+  const fogEnd = visible >= FINAL ? 0 : pt(visible).y - 150;
+  fogbg.style.height = fogEnd > 0 ? (fogEnd + 160) + 'px' : '0px';
+
+  // корабль: на остановке — вдвое меньше, на макушке планеты
+  let x, y, ang, sc;
+  if (here) ({ x, y, ang, sc } = flyPos(here.key, here.t));
+  else { const p = pt(k); x = p.x; y = p.y - STOPS[k][2] / 2 - 22; ang = 0; sc = .5; }
+  shipEl.style.left = x + 'px'; shipEl.style.top = y + 'px';
+  shipEl.style.setProperty('--ang', ang.toFixed(1) + 'deg');
+  shipEl.style.setProperty('--sc', sc.toFixed(3));
+  if (follow) {
+    scroll.scrollTop = y * Z - scroll.clientHeight * (here ? 0.45 : 0.3);
+    if (Z > 1) scroll.scrollLeft = x * Z + zoomEl.offsetLeft - scroll.clientWidth / 2;
+  }
+
+  // наклейки климата — у планет, где игрок уже видел прилёт
+  for (const [i, el] of Object.entries(souvs)) el.hidden = !(+i <= G.seen.stop && +i <= k);
+  // работы идут: на стоянке выбран апгрейд, шаги на него ещё копятся
+  const picked = !here && S.phase === 'stop' && k === S.stop ? G.choices[k] : null;
+  worksEl.hidden = !(picked && picked !== 'skip' && picked !== 'solo' && picked !== 'crew');
+  if (!worksEl.hidden) {
+    // основание — на краю диска с внешней стороны, головка со сваркой — на корабле
+    const p = pt(k), r = STOPS[k][2] / 2 * .84, out = XS[k] < .5 ? -1 : 1, dx = 24, w = 50, img = worksEl.firstChild;
+    worksEl.style.left = (p.x + out * dx) + 'px';
+    worksEl.style.top = (p.y - Math.sqrt(r * r - dx * dx) + 5) + 'px';
+    worksEl.style.setProperty('--sway', (out * 5) + 'deg');
+    img.style.width = w + 'px';
+    img.style.left = (out < 0 ? -.3 : -.7) * w + 'px';
+    img.style.transform = out < 0 ? '' : 'scaleX(-1)';
+  }
+  paintFork(here ? -1 : k);
+}
+
+// ===== РАЗВИЛКА НА КАРТЕ =====
+// На планете с базой путь выбирают стрелкой прямо на карте: прямо к следующей
+// планете или крюком к базе. Сначала — апгрейд в панели снизу, потом стрелка:
+// выбранный апгрейд ждёт в pendingUp, путь — в pickWay (сначала подсвечен
+// прямой). Стрелка только подсвечивает путь, а улетаем по кнопке в панели:
+// случайное касание не должно решать за игрока. В память (или голосом на
+// сервер) апгрейд и путь уходят вместе. Одиночка, пока копит шаги на апгрейд,
+// может стрелку переключить; экипаж голосует, и решённое уже не меняется.
+let pendingUp = null, pickWay = null;
+const face = hero => `<div class="ava"><img src="${IMG}hero_${hero}.webp" alt="${HEROES[hero] || ''}"></div>`;
+// голоса экипажа на этой остановке и свой среди них
+const votesAt = k => G.crewMode ? G.ship.votes.filter(v => v.stop === k && G.ship.crew[v.voter]) : [];
+const myVote = k => votesAt(k).find(v => G.ship.crew[v.voter].me);
+const voters = (k, test) => votesAt(k).filter(test).map(v => face(G.ship.crew[v.voter].hero)).join('');
+
+function paintFork(k) {
+  forkEls.forEach(el => el.remove()); forkEls = [];
+  if (!(k in BASES) || S.phase !== 'stop' || S.stop !== k || busy) { unpaintFork(); return; }
+  const decided = !!G.choices[k], base = BASE_NAME[BASES[k]], mine = myVote(k);
+  // подписей у стрелок нет: каждая указывает на подписанную цель, у базы — значок контейнера
+  const ways = [{ hook: false, at: onPath('leg' + k, .5) }, { hook: true, at: onPath('out' + k, .55) }];
+  for (const w of ways) {
+    const el = document.createElement('button');
+    const picking = !decided && pendingUp, on = decided ? hooked(k) === w.hook : picking ? pickWay === w.hook : !!mine && mine.hook === w.hook;
+    el.type = 'button';
+    el.setAttribute('aria-pressed', on);
+    el.className = 'fork' + (on ? ' on' : picking ? ' ask' : decided || mine ? ' off' : '');
+    el.setAttribute('aria-label', w.hook ? `Крюк к базе ${base}: +30% пути, бак доверху и контейнер` : `Прямо: ${STOPS[k + 1][1]}`);
+    el.style.left = w.at.x + 'px'; el.style.top = w.at.y + 'px';
+    el.innerHTML = `<span class="arr"><svg viewBox="0 0 24 24" aria-hidden="true" style="--ang:${w.at.ang.toFixed(1)}deg"><path d="M12 20 V5 M5 11 L12 4 L19 11"/></svg></span>` +
+      (decided ? '' : `<span class="who">${voters(k, v => v.hook === w.hook)}</span>`);
+    el.addEventListener('click', () => chooseWay(k, w.hook));
+    map.appendChild(el); forkEls.push(el);
+  }
+  // невыбранный путь тускнеет, подсвеченный до решения — светится
+  const way = decided ? hooked(k) : pendingUp ? pickWay : null;
+  paths['leg' + k].ahead.classList.toggle('dim', way === true);
+  ['out', 'in'].forEach(x => paths[x + k].ahead.classList.toggle('dim', way === false));
+  paths['leg' + k].ahead.classList.toggle('pick', !decided && way === false);
+  ['out', 'in'].forEach(x => paths[x + k].ahead.classList.toggle('pick', !decided && way === true));
+}
+// стрелок нет — подсвечивать нечего (тусклый невыбранный путь остаётся)
+function unpaintFork() {
+  for (const p of Object.values(paths)) p.ahead.classList.remove('pick');
+}
+// стрелка: до решения — подсветить путь; одиночке, который копит на апгрейд, — сменить путь
+function chooseWay(k, hook) {
+  if (busy) return;
+  if (G.crewMode && G.choices[k]) { toast('Экипаж уже выбрал путь'); return; }
+  if (!pendingUp && G.crewMode) pendingUp = (myVote(k) || {}).choice || null;   // передумать с голосом
+  if (!pendingUp && !G.choices[k]) { pickWay = hook; openStop(); return; }  // сначала — что улучшаем
+  if (pendingUp) { pickWay = hook; paintHud(); render(shown, false); return; }
+  // корабль стоит, пока копит шаги на апгрейд, — путь можно сменить сразу
+  save.hooks[k] = hook; persist();
+  toast(hook ? `Летим через базу ${BASE_NAME[BASES[k]]}` : `Летим прямо: ${STOPS[k + 1][1]}`);
+  refresh(false);
+}
+// кнопка в панели: подсвеченный путь решён
+function commitWay(k) {
+  const hook = !!pickWay, c = pendingUp;
+  if (G.crewMode) { sendVote(k, c, hook); return; }
+  if (c === 'crew') { crewProfile('ship', null, null, hook); return; }
+  save.choices[k] = c; save.hooks[k] = hook;
+  pendingUp = null; pickWay = null;
+  persist();
+  toast(hook ? `Летим через базу ${BASE_NAME[BASES[k]]}` : `Летим прямо: ${STOPS[k + 1][1]}`);
+  refresh(false);
+}
+// голос экипажа: апгрейд и у развилки — путь; ответ сервера — свежий корабль
+async function sendVote(k, choice, hook) {
+  try {
+    const v = await api('POST', '/choice', { stop: k, choice, hook: !!hook });
+    save.crew.view = v; persist();
+    pendingUp = null; pickWay = null;
+    toast(v.ship.choices[k] ? 'Экипаж решил!' : 'Голос принят');
+  } catch (e) { toast(e.message); }
+  refresh(false);
+}
+
+// ===== ПАНЕЛЬ ВНИЗУ =====
+const hud = document.getElementById('hud');
+function legName(u) {
+  const k = Math.floor(u), f = u - k, next = STOPS[k + 1] ? STOPS[k + 1][1] : '';
+  if (hooked(k)) return f < 0.5 ? `${STOPS[k][1]} → база ${BASE_NAME[BASES[k]]}` : `База ${BASE_NAME[BASES[k]]} → ${next}`;
+  return `${STOPS[k][1]} → ${next}`;
+}
+const UP_NAME = { engine: 'двигатель', cabin: 'каюту', tank: 'бак', radar: 'радар', crew: 'корабль на троих', solo: 'корабль' };
+function paintHud() {
+  hud.hidden = false;
+  const t = today(), now = Math.max(save.steps[t] || 0, phone[t] || 0);
+  let title, pct = '', bar = 0, note = '';
+  const k = S.stop, picked = S.phase === 'stop' ? G.choices[k] : null;
+  if (S.phase === 'finished') { title = 'Финиш: Плутон'; bar = 1; }
+  else if (S.phase === 'leg') {
+    const f = S.at - S.stop;
+    title = legName(S.at) + (S.boost > 1 ? ' <span class="boost">· разгон ×2</span>' : '');
+    pct = Math.floor(f * 100) + '%'; bar = f;
+    const d = daysToNext(S, pace());
+    if (d != null) note = d < 1 ? 'долетим сегодня-завтра' : `≈ ${Math.ceil(d)} ${daysWord(Math.ceil(d))} до ${S.hook && !S.docked ? 'базы' : 'посадки'}`;
+  } else if (picked && picked !== 'skip') {
+    const cost = (options(S).find(o => o.choice === picked) || { cost: 0 }).cost, build = picked === 'solo' || picked === 'crew';
+    title = build ? (picked === 'crew' ? 'Строим корабль на троих' : 'Строим корабль') : `Стоянка: ${STOPS[k][1]} · ставим ${UP_NAME[picked]}`;
+    pct = `${fmt(S.paid)} из ${fmt(cost)}`; bar = cost ? S.paid / cost : 1;
+    if (!build) title = `<img class="wk" src="${IMG}works.webp" alt="">` + title;
+    // экипаж в сборе ещё не значит «летим»: корабль на троих стартует, когда шагов хватит
+    const left = Math.max(0, cost - S.paid);
+    note = build ? `Ещё ${fmt(left)} ${stepsWord(left)}${G.crewMode ? ' экипажа' : ''} — и старт`
+      : G.crewMode ? 'Экипаж решил. Готово — сразу в путь' : k in BASES ? 'Путь можно сменить стрелкой на карте' : 'Нажмите, чтобы передумать';
+  } else if (G.crewMode) {
+    const vs = votesAt(k), mine = myVote(k);
+    title = `Голосуем: ${STOPS[k][1]}`; pct = `${vs.length} из ${G.ship.crew.length}`; bar = vs.length / G.ship.crew.length;
+    note = pendingUp ? 'Другой путь — стрелкой на карте'
+      : mine ? 'Ваш голос принят. Решает большинство, молчащих ждём сутки' : 'Нажмите, чтобы проголосовать';
+  }
+  else if (pendingUp) { title = `Развилка: ${STOPS[k][1]}`; note = 'Другой путь — стрелкой на карте'; }
+  else { title = `Стоянка: ${STOPS[k][1]}`; note = 'Нажмите, чтобы выбрать улучшение'; }
+  if (stepsState === 'web') note = 'Шаги считаются только в приложении';
+  else if (stepsState === 'denied') note = 'Нет доступа к шагам: разрешите его на экране дня, в меню «Шаги за сегодня»';
+  else if (stepsState === 'none') note = 'В этом телефоне нет счётчика шагов';
+  else if (G.crewMode && offline) note = 'Нет связи с сервером: показан корабль, каким он был';
+  // развилка: путь подсвечен, решаем кнопкой
+  const go = pendingUp && S.phase === 'stop' && k in BASES ? (pendingUp === 'crew' ? 'Собрать экипаж' : G.crewMode ? 'Голосую' : 'Летим')
+    + (pickWay ? `: через базу ${BASE_NAME[BASES[k]]}` : `: прямо, ${STOPS[k + 1][1]}`) : '';
+  hud.classList.toggle('tap', canPick());
+  hud.innerHTML = `<div class="row"><span class="leg">${title}</span><span class="pct">${pct}</span></div>
+    ${go ? `<button type="button" class="cta" id="way">${go}</button>` : `<div class="bar"><i style="width:${Math.min(1, bar) * 100}%"></i></div>`}
+    <div class="row"><div class="faces">${G.crew.map(face).join('')}</div>
+      <span class="steps">сегодня ${fmt(now)} ${stepsWord(now)}${note ? `<br><span class="note">${note}</span>` : ''}</span></div>`;
+  const wb = hud.querySelector('#way');
+  if (wb) wb.addEventListener('click', e => { e.stopPropagation(); if (!busy) commitWay(k); });
+  paintCrewBtn();
+}
+// панель открывает выбор, пока он возможен: у одиночки — до вылета, у экипажа — до решения
+const canPick = () => !!S && S.phase === 'stop' && S.stop > 0 && (!G.crewMode || !G.choices[S.stop]);
+hud.addEventListener('click', () => { if (canPick() && !busy) openStop(); });
+
+let toastT;
+function toast(text) {
+  const el = document.getElementById('toast');
+  el.textContent = text; el.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 2400);
+}
+
+// ===== СТОЯНКА =====
+const sheet = document.getElementById('sheet');
+const closeSheet = () => sheet.classList.remove('on');
+
+// ===== ШТОРКА: КРЕСТИК И СМАХИВАНИЕ ===== (решение 2026-11-22)
+// Наверху шторки — полоска и крестик в углу; потянуть полоску вниз — тоже закрыть.
+// Закрыть = как «Отмена», если она есть (у ника и согласия она сбрасывает
+// выбранный апгрейд). Стыковку с базой не закрыть: без открытого контейнера
+// полёт дальше не пойдёт — у неё нет крестика, и смахивание её не трогает.
+const SHEET_TOP = '<div class="grab"></div><button type="button" class="sheet-x" aria-label="Закрыть">×</button>';
+function dismiss() {
+  const no = sheet.querySelector('#no');
+  if (no) no.click(); else closeSheet();
+}
+sheet.addEventListener('click', e => { if (e.target.closest('.sheet-x')) dismiss(); });
+let drag = null;
+sheet.addEventListener('touchstart', e => {
+  const y = e.touches[0].clientY;
+  if (e.touches.length !== 1 || !sheet.querySelector('.sheet-x') || sheet.scrollTop > 0 || e.target.closest('button, input, a, label')) return;
+  if (y - sheet.getBoundingClientRect().top > 48) return;   // тянуть — за верх шторки, где полоска
+  drag = { y0: y, t0: e.timeStamp, dy: 0 };
+  sheet.classList.add('drag');
+}, { passive: true });
+sheet.addEventListener('touchmove', e => {
+  if (!drag) return;
+  e.preventDefault();
+  drag.dy = Math.max(0, e.touches[0].clientY - drag.y0);
+  sheet.style.transform = `translateY(${drag.dy}px)`;
+}, { passive: false });
+function endDrag(e) {
+  if (!drag) return;
+  const { dy, t0 } = drag, fast = dy > 30 && dy / Math.max(1, e.timeStamp - t0) > .5;
+  drag = null;
+  sheet.classList.remove('drag');
+  // закрылась — уезжает вниз с того места, где её отпустили; нет — возвращается
+  if (e.type === 'touchend' && (dy > 90 || fast)) dismiss();
+  sheet.style.transform = '';
+}
+sheet.addEventListener('touchend', endDrag);
+sheet.addEventListener('touchcancel', endDrag);
+
+function upgradeTile(o) {
+  const s = shipLook(S);
+  if (o.choice === 'engine') return { pic: rig({ ...s, engine: S.engine + 1, w: 34, flame: 0 }), name: 'Двигатель: ' + ENGINES[S.engine], sub: 'вдвое быстрее' };
+  if (o.choice === 'cabin') return { pic: rig({ ...s, seats: 5, w: 34, flame: 0 }), name: 'Каюта на 5 мест', sub: 'позвать ещё двоих' };
+  if (o.choice === 'tank') return { pic: rig({ ...s, tank: S.tankLevel + 1, w: 34, flame: 0 }), name: TANKS[S.tankLevel + 1], sub: 'лишние шаги не сгорают' };
+  if (o.choice === 'radar') return { pic: rig({ ...s, radar: true, w: 34, flame: 0 }), name: 'Радар', sub: 'видно дальше и что в контейнере' };
+  if (o.choice === 'crew') return { pic: rig({ ...s, seats: 3, w: 34, flame: 0 }), name: 'Пересесть в экипаж', sub: 'корабль на 3 места, позвать друзей' };
+  return { pic: rig({ ...s, w: 34, flame: 0 }), name: 'Без апгрейда', sub: 'сразу в путь' };
+}
+
+function openStop() {
+  const i = S.stop, opts = options(S).filter(o => CREW_READY || o.choice !== 'crew').map(o => ({ ...o, ...upgradeTile(o) }));
+  const fork = i in BASES, crew = G.crewMode, mine = myVote(i);
+  const now = pendingUp || (crew ? mine && mine.choice : save.choices[i]);
+  const pick = { up: Math.max(0, opts.findIndex(o => o.choice === now)) };
+  const paint = () => {
+    const tile = (n, o) => `<button type="button" class="opt" role="radio" data-i="${n}" aria-checked="${pick.up === n}">
+      <div class="ic">${o.pic}</div><b>${o.name}</b><span>${o.sub}</span>${o.cost ? `<span class="price">${fmt(o.cost)} ${stepsWord(o.cost)}</span>` : ''}
+      ${crew ? `<span class="who">${voters(i, v => v.choice === o.choice)}</span>` : ''}</button>`;
+    // на развилке путь ещё не выбран — после апгрейда стрелка на карте
+    const way = fork && (crew || !save.choices[i]);
+    const c = opts[pick.up].choice;
+    sheet.innerHTML = `${SHEET_TOP}
+      <div class="head"><img src="${IMG}${STOPS[i][0]}.webp" alt=""><div><h4>Стоянка на ${STOPS[i][4]}</h4>
+        <p>${crew ? 'Экипаж голосует: решает большинство, а через сутки после первого голоса — кто успел. Шаги тем временем копятся.'
+          : 'Шаги копятся, пока вы выбираете. Улучшение — за день шагов по норме.'}</p></div></div>
+      ${STOPS[i][0] === 'jupiter' ? '<div class="info"><b>Гравманёвр</b> Юпитер разгонит корабль вдвое — бесплатно и до конца пути.</div>' : ''}
+      <div class="q">Что улучшаем</div><div class="opts" role="radiogroup">${opts.map((o, n) => tile(n, o)).join('')}</div>
+      ${fork ? `<div class="info">${crate(false, 30)}<span>Здесь развилка: прямо или крюком через базу ${BASE_NAME[BASES[i]]} — бак доверху и контейнер. Путь выбирают стрелкой на карте.</span></div>` : ''}
+      <button type="button" class="cta" id="go">${way ? 'Дальше: куда летим?' : c === 'crew' ? 'Собрать экипаж' : crew ? 'Голосую' : fork ? 'Готово' : 'В путь: ' + STOPS[i + 1][1]}</button>`;
+    sheet.querySelectorAll('.opt').forEach(b => b.addEventListener('click', () => { pick.up = +b.dataset.i; paint(); }));
+    sheet.querySelector('#go').addEventListener('click', () => {
+      closeSheet();
+      // пересадка: корабль на троих строится уже шагами экипажа, с этого места
+      // (на развилке — после стрелки: путь решается вместе с пересадкой)
+      if (c === 'crew' && !way) { crewProfile('ship'); return; }
+      if (way) {
+        // апгрейд ждёт стрелки; карта — к развилке
+        pendingUp = c;
+        if (pickWay == null) pickWay = G.crewMode && mine ? mine.hook : false;
+        paintHud(); render(shown, false);
+        const a = forkEls[0];
+        if (a) scroll.scrollTo({ top: parseFloat(a.style.top) * Z - scroll.clientHeight * .45, behavior: 'smooth' });
+        toast('Путь подсвечен — можно сменить стрелкой');
+        return;
+      }
+      if (crew) { sendVote(i, c, false); return; }
+      save.choices[i] = c;
+      if (!fork) delete save.hooks[i];
+      persist();
+      refresh(false);
+    });
+  };
+  paint();
+  sheet.classList.add('on');
+}
+
+// ===== ОПИСАНИЕ ПО ТАПУ ===== планета: где она на пути, климат, что на ней можно поставить
+const listOr = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' или ' + a[a.length - 1] : a[0] || '';
+function openBody(i) {
+  if (busy || !scene.hidden || !S) return;
+  if (i > S.visible) { toast('Впереди туман: подлетите ближе — или поставьте радар'); return; }
+  const [id, name, , , loc] = STOPS[i], c = CLIMATE[id] || {}, k = S.stop, landed = S.phase !== 'leg';
+  const status = i === 0 && k === 0 && landed ? 'Старт: корабль на Земле'
+    : i === k && landed ? (S.phase === 'finished' ? 'Финиш! Корабль здесь' : 'Корабль здесь, на стоянке')
+    : i <= k ? (i === 0 ? 'Отсюда стартовали' : 'Уже были здесь')
+    : i === k + 1 && !landed ? `Летим сюда: ${Math.floor((S.at - k) * 100)}% пути`
+    : 'Впереди по маршруту';
+  const ups = (MENU[i] || []).map(u => UP_NAME[u]);
+  const here = canPick() && i === k;
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head"><img src="${IMG}${id}.webp" alt=""><div><h4>${name}</h4><p>${status}</p></div></div>
+    ${c.fact ? `<div class="info"><span><b>Климат</b> ${c.fact}</span></div>` : ''}
+    ${i > 0 && i < FINAL ? `<div class="info"><span><b>Стоянка</b> ${ups.length ? `Здесь можно поставить ${listOr(ups)}.` : 'Апгрейдов здесь нет — только отдых.'}
+      ${i in BASES ? ` А дальше — развилка: прямо или крюком через базу ${BASE_NAME[BASES[i]]}.` : ''}
+      ${STOPS[i][0] === 'jupiter' ? ' Юпитер бесплатно разгоняет корабль вдвое.' : ''}</span></div>` : ''}
+    ${i === FINAL ? '<div class="info"><span><b>Финиш</b> Конец пути: сюда летят все корабли.</span></div>' : ''}
+    ${here ? '<button type="button" class="cta" id="go">Что улучшим?</button>' : ''}`;
+  if (here) sheet.querySelector('#go').addEventListener('click', openStop);
+  sheet.classList.add('on');
+}
+// база: что даёт крюк и что было в контейнере
+function openBaseInfo(i) {
+  if (busy || !scene.hidden || !S) return;
+  if (i > S.visible - 1) { toast('Впереди туман: подлетите ближе — или поставьте радар'); return; }
+  const b = BASES[i], g = S.gifts[i], opened = g && G.seen.gifts[i];
+  const inside = opened ? `Контейнер открыт: ${GIFT[g].name.toLowerCase()} — ${GIFT[g].sub}.`
+    : S.radar ? `Радар видит в контейнере: ${GIFT[gift(G.seed, i, S)].name.toLowerCase()}.`
+    : 'Что в контейнере — неизвестно: двигатель, разгон, бак или радар.';
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head"><img src="${IMG}${b}.webp" alt=""><div><h4>База ${BASE_NAME[b]}</h4><p>${opened ? 'Уже стыковались' : `Спутник по пути: ${STOPS[i][1]} → ${STOPS[i + 1][1]}`}</p></div></div>
+    <div class="info"><span><b>Крюк</b> Путь через базу на 30% длиннее, зато бак доливается доверху, а база дарит запечатанный контейнер.</span></div>
+    <div class="cratebox"><div class="gift">${opened ? giftPic(g, S, 40) : crate(false, 44)}</div><span>${inside}</span></div>`;
+  sheet.classList.add('on');
+}
+
+// ===== ЭКИПАЖ: ЭКРАНЫ =====
+// Кнопка сверху справа: у экипажа — лица и список, у одиночки — вход по коду друга.
+const crewBtn = document.getElementById('crewbtn');
+let offline = false;
+function paintCrewBtn() {
+  crewBtn.hidden = !CREW_READY || !S;
+  if (crewBtn.hidden) return;
+  crewBtn.innerHTML = G.crewMode ? `<span class="faces">${G.crew.map(face).join('')}</span>Экипаж` : `<span class="faces">${face(save.hero)}</span>Друзья`;
+}
+crewBtn.addEventListener('click', () => { if (!busy && scene.hidden) (G.crewMode ? openCrew() : openFriends()); });
+
+// одиночка: как собрать экипаж и сесть по коду
+function openFriends() {
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head">${rig({ seats: 3, crew: [save.hero], w: 54, flame: 0 })}<div><h4>Лететь с друзьями</h4>
+      <p>В экипаже шаги всех складываются, а апгрейды выбирают голосованием.</p></div></div>
+    <div class="info"><span><b>Свой экипаж</b> — на любой стоянке: «Пересесть в экипаж». Корабль на троих строится шагами всех, кого вы позовёте.</span></div>
+    <button type="button" class="cta" id="code">У меня есть код друга</button>
+    <button type="button" class="link" id="me">${save.secret ? 'Сменить ник и героя' : 'Сменить героя'}</button>
+    ${save.secret ? '<button type="button" class="link danger" id="forget">Удалить мои данные с сервера экипажей</button>' : ''}`;
+  sheet.querySelector('#code').addEventListener('click', () => joinByCode(true));
+  sheet.querySelector('#me').addEventListener('click', openMe);
+  const f = sheet.querySelector('#forget');
+  if (f) f.addEventListener('click', () => confirmSheet('Удалить ник и героя с сервера экипажей? В экипажах вас больше не будет.', 'Удалить', async () => {
+    try { await api('DELETE', '/me'); save.secret = null; persist(); toast('Удалено'); } catch (e) { toast(e.message); }
+    closeSheet();
+  }));
+  sheet.classList.add('on');
+}
+
+// экипаж: кто на борту, код для друзей, выход
+function openCrew() {
+  const sh = G.ship, free = Math.max(0, sh.seats - sh.crew.length);
+  const week = c => c.week.reduce((a, d) => a + d.steps, 0);
+  const invite = `Летим к Плутону! Сядь ко мне в корабль: Astrolab «прогноз на день» → Полёт к планетам → «У меня есть код». Код: ${sh.inviteCode}`;
+  const stage = buildStage(S.at);   // корабль ещё строится — в шапке тот же этап, что на карте
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head">${stage ? `<img src="${IMG}${STAGES[stage - 1]}.webp" alt="Корабль строится">` : rig({ ...shipLook(S), crew: G.crew, w: 54, flame: 0 })}<div><h4>Экипаж · ${sh.crew.length} из ${sh.seats}</h4>
+      <p>Шаги всех складываются, апгрейды — голосованием. Шаги каждого видит только экипаж.</p></div></div>
+    <div class="crew">${sh.crew.map(c => `<div class="mate">${face(c.hero)}<div><b>${esc(c.nickname)}${c.me ? ' (вы)' : ''}</b>
+      <span>за неделю ${fmt(week(c))} ${stepsWord(week(c))}</span></div>${c.captain ? '<span class="tag">капитан</span>' : ''}</div>`).join('')}
+      ${free ? `<div class="mate empty">Свободно мест: ${free}</div>` : ''}</div>
+    ${free ? `<div class="q">Код для друзей</div><div class="code">${sh.inviteCode.slice(0, 4)} ${sh.inviteCode.slice(4)}</div>
+      <button type="button" class="cta" id="copy">Скопировать приглашение</button>` : `<p class="small">${cabinNote(sh.seats)}</p>`}
+    <button type="button" class="link" id="me">Сменить ник и героя</button>
+    <button type="button" class="link danger" id="leave">Покинуть экипаж</button>
+    <button type="button" class="link danger" id="forget">Удалить мои данные из экипажа</button>`;
+  const copy = sheet.querySelector('#copy');
+  if (copy) copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(invite); toast('Приглашение скопировано'); } catch (e) { toast('Код: ' + sh.inviteCode); }
+  });
+  sheet.querySelector('#me').addEventListener('click', openMe);
+  sheet.querySelector('#leave').addEventListener('click', () => confirmSheet(
+    'Покинуть экипаж? Дальше полетите один с этого же места. Двигатель и бак будут как у одиночки на этом участке пути, шаги в баке делятся поровну.',
+    'Да, лечу один', leaveCrew));
+  sheet.querySelector('#forget').addEventListener('click', () => confirmSheet(
+    'Удалить ник, героя и шаги по дням с сервера? Вы выйдете из экипажа и полетите один с этого места. Пройденный путь у экипажа останется — без вашего имени.',
+    'Удалить и лететь одному', async () => {
+      closeSheet();
+      const snap = leaveSnapshot(S, G.ship.crew.length);
+      try { await api('DELETE', '/me'); } catch (e) { toast(e.message); return; }
+      save.secret = null; save.nick = '';
+      toast('Данные удалены');
+      becomeSolo(snap);
+    }));
+  sheet.classList.add('on');
+}
+// мест нет: где впереди можно поставить каюту на 5 мест (MENU) — тогда код снова появится
+function cabinNote(seats) {
+  if (seats >= 5) return 'Мест больше нет: корабль на 5 мест — самый большой.';
+  const at = Object.keys(MENU).map(Number).filter(i => i > S.stop && MENU[i].includes('cabin')).sort((a, b) => a - b);
+  if (!at.length) return 'Мест больше нет, и каюту на 5 мест впереди уже не поставить.';
+  const names = at.map(i => STOPS[i][1]);
+  const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' или ' + names.at(-1) : names[0];
+  return `Мест больше нет. Каюту на 5 мест экипаж может выбрать на стоянке: ${list} — тогда позовёте ещё двоих, и код для друзей появится здесь.`;
+}
+
+// ник и герой: у одиночки герой живёт в телефоне, у игрока сервера экипажей — ещё и на сервере
+function openMe() {
+  let hero = save.hero in HEROES ? save.hero : 'panda';
+  const server = !!save.secret, me = save.crew && save.crew.view && save.crew.view.me;
+  const nick0 = (me && me.nickname) || save.nick || '';
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head"><div><h4>${server ? 'Ник и герой' : 'Герой'}</h4>
+      <p>${G.crewMode ? 'Экипаж увидит новые ник и героя после обновления корабля.' : 'Он летит в иллюминаторе корабля.'}</p></div></div>
+    ${server ? `<label class="field">Ник в экипаже<input id="nick" maxlength="20" autocomplete="nickname" value="${esc(nick0)}"></label>` : ''}
+    <div class="q">Герой</div>
+    <div class="heroes" role="radiogroup" aria-label="Герой">${Object.entries(HEROES).map(([k, n]) =>
+      `<button type="button" role="radio" data-h="${k}" aria-checked="${k === hero}"><img src="${IMG}hero_${k}.webp" alt="">${n}</button>`).join('')}</div>
+    <div class="err" role="alert"></div>
+    <button type="button" class="cta" id="save">Сохранить</button>
+    <button type="button" class="cta ghost" id="no">Отмена</button>`;
+  const row = sheet.querySelector('.heroes'), err = sheet.querySelector('.err'), nick = sheet.querySelector('#nick');
+  row.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    hero = b.dataset.h;
+    row.querySelectorAll('button').forEach(x => x.setAttribute('aria-checked', String(x === b)));
+  }));
+  const cur = row.querySelector('[aria-checked="true"]');
+  if (cur) row.scrollLeft = cur.offsetLeft - row.clientWidth / 2 + cur.offsetWidth / 2;
+  sheet.querySelector('#no').addEventListener('click', closeSheet);
+  sheet.querySelector('#save').addEventListener('click', async e => {
+    const n = nick ? nick.value.trim() : nick0, body = {};
+    if (nick && n !== nick0) {
+      if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(n)) { err.textContent = 'Ник — буквы и цифры, можно пробел, точку, дефис'; return; }
+      body.nickname = n;
+    }
+    if (hero !== save.hero) body.hero = hero;
+    if (!Object.keys(body).length) { closeSheet(); return; }
+    e.currentTarget.disabled = true;
+    if (server) {
+      try { await api('POST', '/me', body); } catch (x) { err.textContent = x.message; e.currentTarget.disabled = false; return; }
+    }
+    save.hero = hero; if (server) save.nick = n;
+    // свой корабль экипажа обновится с сервера, а до ответа — уже с новым лицом
+    if (me) { me.hero = hero; me.nickname = n; }
+    const mine = inCrew() && save.crew.view.ship.crew.find(c => c.me);
+    if (mine) { mine.hero = hero; mine.nickname = n; }
+    persist(); closeSheet(); toast('Сохранено');
+    lastLanded = null;
+    if (save.crew) load(false); else refresh(false);
+  });
+  sheet.classList.add('on');
+}
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function confirmSheet(text, yes, act) {
+  sheet.innerHTML = `${SHEET_TOP}<p class="ask-text" style="margin:4px 2px">${text}</p>
+    <button type="button" class="cta" id="yes">${yes}</button><button type="button" class="cta ghost" id="no">Отмена</button>`;
+  sheet.querySelector('#yes').addEventListener('click', act);
+  sheet.querySelector('#no').addEventListener('click', closeSheet);
+  sheet.classList.add('on');
+}
+
+// ушёл (или сервер больше не знает игрока): дальше одиночка с того же места.
+// Сегодняшние шаги уже ушли экипажу — свои начнутся с завтрашних.
+function becomeSolo(snap) {
+  save.snap = snap; save.start = shift(today(), 1);
+  save.choices = {}; save.hooks = {}; save.steps = {};
+  save.seed = save.seed || newSeed();
+  const u = snap.flown !== undefined ? snap.stop + snap.flown / legLength(snap.stop, !!snap.hook) : snap.stop;
+  save.seen = { u, stop: snap.stop, gifts: {} };
+  save.crew = null; pendingUp = null; pickWay = null; persist();
+  refresh(true);
+}
+async function leaveCrew() {
+  closeSheet();
+  const snap = leaveSnapshot(S, G.ship.crew.length);
+  try { await api('POST', '/leave', { today: today() }); } catch (e) { toast(e.message); return; }
+  toast('Летим одни');
+  becomeSolo(snap);
+}
+
+// Ник и согласие — один раз, при первом экипаже. Дальше сервер узнаёт игрока по ключу.
+// what: 'ship' — строим корабль (с Земли или пересадкой), code — сесть по коду
+function crewProfile(what, code, preview, hook) {
+  const go = async (profile) => {
+    const body = { today: today(), ...profile };
+    try {
+      let v;
+      if (what === 'ship') {
+        // пересадка: снимок одиночки на планете; сегодняшние шаги пойдут экипажу, из снимка их убираем
+        if (S && S.stop > 0) {
+          const snap = snapshot(S), todays = split(save.steps[today()] || 0).counted;
+          body.start = { ...snap, tank: Math.floor(snap.tank), credit: Math.max(0, Math.floor(snap.credit - todays)) };
+          if (hook) body.hook = true;
+        }
+        v = await api('POST', '/ships', body);
+      } else v = await api('POST', '/join', { ...body, code });
+      if (v.secret) save.secret = v.secret;
+      if (v.me && v.me.hero !== save.hero) await api('POST', '/me', { hero: save.hero }).catch(() => {});
+      save.crew = { view: { me: v.me, ship: v.ship }, seen: null };
+      pendingUp = null; pickWay = null;
+      closeSheet(); scene.hidden = true;
+      // свежий корабль — с уже сданными сегодняшними шагами
+      await syncCrew(phone);
+      refresh(true);
+      if (what === 'ship') setTimeout(openCrew, 1200);
+      else toast('Вы на борту!');
+    } catch (e) { const er = sheet.querySelector('.err'); if (er) er.textContent = e.message; else toast(e.message); }
+  };
+  if (save.secret) { go({}); return; }   // ключ уже есть: ник и согласие даны раньше
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head">${preview || rig({ seats: 3, crew: [save.hero], w: 54, flame: 0 })}<div><h4>${what === 'ship' ? 'Собираем экипаж' : 'Садимся на борт'}</h4>
+      <p>Друзья увидят ваш ник, героя и шаги по дням.</p></div></div>
+    <label class="field">Ник в экипаже<input id="nick" maxlength="20" autocomplete="nickname" value="${esc(save.nick)}" placeholder="Например, Звёздный"></label>
+    <label class="agree"><input type="checkbox" id="ok"><span>Согласен передать Astrolab ник, героя и число шагов за день — чтобы сложить их с шагами экипажа.
+      Шаги по дням видит только экипаж, через 30 дней они сворачиваются в общий путь корабля.
+      <a href="https://astrolab.you/privacy.html" target="_blank" rel="noopener">Политика конфиденциальности, п. 3.6</a></span></label>
+    <div class="err" role="alert"></div>
+    <button type="button" class="cta" id="go" disabled>${what === 'ship' ? 'Строить корабль на троих' : 'Сесть на борт'}</button>
+    <button type="button" class="cta ghost" id="no">Отмена</button>`;
+  const nick = sheet.querySelector('#nick'), ok = sheet.querySelector('#ok'), btn = sheet.querySelector('#go');
+  const valid = () => /^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u.test(nick.value.trim()) && ok.checked;
+  const upd = () => { btn.disabled = !valid(); };
+  nick.addEventListener('input', upd); ok.addEventListener('change', upd);
+  btn.addEventListener('click', () => {
+    if (!valid()) return;
+    save.nick = nick.value.trim(); persist();
+    btn.disabled = true;
+    go({ nickname: save.nick, hero: save.hero, consent: true }).finally(upd);
+  });
+  sheet.querySelector('#no').addEventListener('click', () => { pendingUp = null; pickWay = null; closeSheet(); paintHud(); render(shown, false); });
+  sheet.classList.add('on');
+}
+
+// код друга → кто зовёт → ник и согласие → на борт
+function joinByCode(fromSolo) {
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head">${rig({ seats: 3, crew: [save.hero], w: 54, flame: 0 })}<div><h4>Код друга</h4>
+      <p>${fromSolo && save.start ? 'Свой одноместный корабль останется: в экипаже вы полетите с друзьями с их места.' : '8 букв и цифр из приглашения.'}</p></div></div>
+    <label class="field">Код корабля<input id="code" class="code-in" maxlength="9" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX XXXX"></label>
+    <div class="err" role="alert"></div>
+    <button type="button" class="cta" id="find">Найти корабль</button>
+    <button type="button" class="cta ghost" id="no">Отмена</button>`;
+  const inp = sheet.querySelector('#code'), err = sheet.querySelector('.err');
+  sheet.querySelector('#find').addEventListener('click', async () => {
+    const code = inp.value.replace(/\s/g, '').toUpperCase();
+    if (!/^[2-9A-HJKMNP-Z]{8}$/.test(code)) { err.textContent = 'Код — 8 букв и цифр, без 0, 1, I, L и O'; return; }
+    try {
+      const p = await api('GET', '/invite/' + code);
+      if (p.crew.length >= p.seats) { err.textContent = 'На этом корабле нет свободных мест'; return; }
+      const pic = rig({ seats: p.seats, crew: [...p.crew.map(c => c.hero), save.hero], w: 54, flame: 0 });
+      sheet.innerHTML = `${SHEET_TOP}
+        <div class="head">${pic}<div><h4>Зовут на корабль</h4><p>На борту: ${p.crew.map(c => esc(c.nickname)).join(', ')}. Свободно мест: ${p.seats - p.crew.length}.</p></div></div>
+        <div class="err" role="alert"></div>
+        <button type="button" class="cta" id="yes">Лечу с ними</button><button type="button" class="cta ghost" id="no">Отмена</button>`;
+      sheet.querySelector('#yes').addEventListener('click', () => crewProfile('join', code, pic));
+      sheet.querySelector('#no').addEventListener('click', closeSheet);
+    } catch (e) { err.textContent = e.status === 404 ? 'Корабль с таким кодом не найден' : e.message; }
+  });
+  sheet.querySelector('#no').addEventListener('click', closeSheet);
+  sheet.classList.add('on');
+  setTimeout(() => inp.focus(), 300);
+}
+
+// Сдать свои шаги и забрать корабль. Без сети — корабль, каким он был.
+async function syncCrew(h) {
+  offline = false;
+  const sh = save.crew.view && save.crew.view.ship;
+  if (sh) {
+    let from = shift(today(), -BACKFILL);
+    if (sh.joinedOn > from) from = sh.joinedOn;
+    if (sh.startDay > from) from = sh.startDay;
+    const days = Object.keys(h).filter(d => d >= from && d <= today()).sort().slice(-9)
+      .map(day => ({ day, steps: Math.min(100000, Math.round(h[day])) }));
+    if (days.length) await api('POST', '/steps', { days }).catch(() => {});
+  }
+  try {
+    const v = await api('GET', '/ship');
+    if (!v.ship) {
+      // сервер больше не держит нас в экипаже (удалили данные, убрали заброшенный корабль)
+      const old = save.crew.view && save.crew.view.ship;
+      if (old && S && G && G.crewMode) { const snap = leaveSnapshot(S, old.crew.length); save.crew = null; becomeSoloLater = snap; }
+      else save.crew = null;
+    } else save.crew.view = v;
+  } catch (e) {
+    offline = e.code === 'offline' || e.status >= 500;
+    if (e.status === 401) { save.secret = null; save.crew = null; }
+  }
+  persist();
+}
+let becomeSoloLater = null;
+
+// база: бак доливается доверху, контейнер открывают — выбора нет
+function openBase(i, g) {
+  const base = BASE_NAME[BASES[i]];
+  const paint = opened => {
+    sheet.innerHTML = `<div class="grab"></div>
+      <div class="head"><img src="${IMG}${BASES[i]}.webp" alt=""><div><h4>Стыковка: база ${base}</h4><p>Бак залит доверху. База дарит запечатанный контейнер.</p></div></div>
+      <div class="cratebox">${crate(opened, 60)}
+        ${opened ? `<div class="gift">${giftPic(g, S)}</div><div><b>${GIFT[g].name}</b><span>${GIFT[g].sub}</span></div>`
+          : `<div><b>Что внутри — неизвестно</b><span>Двигатель, бак, радар или разгон. Заранее видно только с радаром.</span></div>`}</div>
+      <button type="button" class="cta" id="go">${opened ? 'Дальше' : 'Открыть контейнер'}</button>`;
+    sheet.querySelector('#go').addEventListener('click', () => {
+      if (!opened) { G.seen.gifts[i] = true; persist(); toast(`В контейнере: ${GIFT[g].name}!`); lastLanded = null; drawShipIfChanged(); paint(true); }
+      else { closeSheet(); setTimeout(next, 400); }
+    });
+  };
+  paint(false);
+  sheet.classList.add('on');
+}
+
+// ===== СЦЕНЫ =====
+const scene = document.getElementById('scene');
+const R = (a, b) => a + Math.random() * (b - a);
+const many = (n, f) => Array.from({ length: n }, (_, k) => f(k)).join('');
+const BOLT = '<svg viewBox="0 0 30 60" aria-hidden="true"><path d="M18 2 L6 32 H15 L10 58 L26 22 H16 Z" fill="#FFF3B0" stroke="#4A3426" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+function weather(key) {
+  switch (key) {
+    case 'moon': return `<img class="abs sticker" src="${IMG}earth.webp" alt="" style="width:20%;left:72%;top:7%">`;
+    case 'venus': return '<i class="tint" style="background:rgb(240 200 110 / .12)"></i>' +
+      many(3, k => `<i class="haze" style="left:${R(-30, 30)}%;top:${10 + k * 22}%;--dx:${R(-20, 20)}cqw;--d:${-R(0, 12)}s"></i>`) + '<i class="heat"></i>';
+    case 'mercury': return '<i class="sun"></i><i class="heat"></i>';
+    case 'mars': return '<i class="tint" style="background:rgb(200 100 60 / .12)"></i>' +
+      many(46, () => `<i class="dust" style="top:${R(5, 95)}%;--s:${R(3, 7)}px;--t:${R(2.5, 5)}s;--d:${-R(0, 5)}s;--dy:${R(-30, 30)}px"></i>`);
+    case 'ceres': return many(26, () => `<i class="rise" style="left:${R(25, 75)}%;--s:${R(3, 6)}px;--t:${R(4, 8)}s;--d:${-R(0, 8)}s;--dx:${R(-40, 40)}px"></i>`);
+    case 'jupiter': return `<i class="flash" style="--d:-1s"></i><i class="bolt" style="left:16%;top:20%;--d:-1s">${BOLT}</i>` +
+      `<i class="bolt" style="left:68%;top:30%;--d:-2.6s;transform:scaleX(-1)">${BOLT}</i>`;
+    case 'saturn': return many(30, () => `<i class="ice" style="left:${R(4, 92)}%;top:${R(4, 70)}%;--s:${R(6, 13)}px;--t:${R(2, 4.5)}s;--d:${-R(0, 4)}s"></i>`);
+    case 'uranus': return '<i class="frost"></i>' + many(55, () => `<i class="snow" style="left:${R(0, 100)}%;--s:${R(2, 4.5)}px;--t:${R(5, 9)}s;--d:${-R(0, 9)}s;--dx:${R(-30, 30)}px"></i>`);
+    case 'neptune': return '<i class="tint" style="background:rgb(90 130 230 / .1)"></i>' +
+      many(24, () => `<i class="streak" style="top:${R(3, 95)}%;--l:${R(40, 110)}px;--t:${R(.7, 1.5)}s;--d:${-R(0, 1.5)}s"></i>`);
+    case 'pluto': return '<i class="tint" style="background:rgb(150 180 255 / .1)"></i>' +
+      many(30, () => `<i class="snow big" style="left:${R(0, 100)}%;--s:${R(4, 8)}px;--t:${R(8, 14)}s;--d:${-R(0, 14)}s;--dx:${R(-40, 40)}px"></i>`);
+  }
+  return '';
+}
+const banner = (title, top) => `<svg class="banner" viewBox="0 0 300 70" style="left:6%;width:88%;top:${top}%" aria-hidden="true">
+  <path d="M14 22 H44 V60 H14 L26 41 Z M286 22 H256 V60 H286 L274 41 Z" fill="var(--banner)" stroke="var(--ink)" stroke-width="4" stroke-linejoin="round"/>
+  <rect x="34" y="10" width="232" height="44" rx="10" fill="var(--gold-pale)" stroke="var(--ink)" stroke-width="4.5"/>
+  <text x="150" y="40" text-anchor="middle" style="font-size:${title.length > 19 ? 19 : 22}px">${title}</text></svg>`;
+
+// прилёт: планета, её климат и факт — потом стоянка
+function showArrival(i, then) {
+  const [id, , , acc] = STOPS[i], c = CLIMATE[id], final = i >= FINAL;
+  const title = final ? 'Долетели до Плутона!' : `Прилетели на ${acc}!`;
+  scene.innerHTML = `<div class="stage">
+    <div class="abs" style="inset:0;background:rgb(12 15 30 / .35)"></div>
+    <div class="rays" style="left:50%;top:27%;width:150%"></div>
+    <img class="abs sticker" src="${IMG}${id}.webp" alt="" style="width:${c.sticker ? 52 : 56}%;left:${c.sticker ? 12 : 22}%;top:12%">
+    ${c.sticker ? `<img class="abs sticker" src="${IMG}${c.sticker}.webp" alt="" style="width:32%;left:60%;top:21%;z-index:2">` : ''}
+    <div class="wx" aria-hidden="true">${weather(id)}</div>
+    ${banner(title, 41)}
+    <div class="factcard" style="top:54%"><div class="q">Климат · ${STOPS[i][1]}</div>${c.fact}</div></div>
+    ${final ? `<div class="foot" style="bottom:calc(84px + env(safe-area-inset-bottom))"><div class="chips">
+      <span class="chip">${fmt(S.track.length)} ${daysWord(S.track.length)} в пути</span>
+      <span class="chip">${fmt(S.track.reduce((a, d) => a + G.counted(d.day), 0))} шагов</span>
+      <span class="chip">двигатель: ${S.engine ? ENGINES[S.engine - 1] : 'встроенный'}</span></div></div>` : ''}
+    <div class="foot"><button type="button" class="cta" id="sc-go">${final ? 'К карте' : 'На стоянку: что улучшим?'}</button></div>`;
+  scene.hidden = false;
+  scene.querySelector('#sc-go').addEventListener('click', () => { scene.hidden = true; then(); });
+}
+
+// старт: кто летит и как — одному сразу или экипажем с друзьями (или по коду друга)
+function showStart() {
+  let hero = save.hero in HEROES ? save.hero : 'panda', how = 'solo';
+  const paint = () => {
+    const crew = how === 'crew';
+    scene.innerHTML = `<div class="stage">
+      <img class="abs sticker" src="${IMG}earth.webp" alt="" style="width:150%;left:-25%;top:44%">
+      <div class="abs" style="left:19%;width:62%;top:19%">
+        <img class="sticker" src="${IMG}launchpad.webp" alt="" style="width:100%">
+        <div class="abs" style="left:40%;bottom:39%;transform:translateX(-50%)">${rig({ seats: crew ? 3 : 1, crew: [hero], w: crew ? 92 : 74, flame: 0 })}</div></div>
+      <div class="title" style="top:3%">Полёт к Плутону<small>Шаги превращаются в путь корабля</small></div></div>
+      <div class="sheet on">
+        <div class="q">Кто полетит</div>
+        <div class="heroes" role="radiogroup" aria-label="Герой">${Object.entries(HEROES).map(([k, n]) =>
+          `<button type="button" role="radio" data-h="${k}" aria-checked="${k === hero}"><img src="${IMG}hero_${k}.webp" alt="">${n}</button>`).join('')}</div>
+        <div class="q">Как полетим</div>
+        <div class="opts" role="radiogroup">
+          <button type="button" class="opt" role="radio" data-how="solo" aria-checked="${!crew}"><div class="ic">${rig({ seats: 1, crew: [hero], w: 34, flame: 0 })}</div>
+            <b>Лечу один</b><span class="price">${fmt(RULES.soloBuild)} шагов</span><span>лёгкий: шаг уводит вдвое дальше</span></button>
+          <button type="button" class="opt" role="radio" data-how="crew" aria-checked="${crew}"${CREW_READY ? '' : ' aria-disabled="true"'}><div class="ic">${rig({ seats: 3, crew: [hero], w: 44, flame: 0 })}</div>
+            <b>Собираю команду</b><span class="price">${fmt(RULES.crewBuild)} на троих</span><span>${CREW_READY ? 'шаги друзей складываются' : 'в демо недоступно'}</span></button></div>
+        <button type="button" class="cta" id="sc-go">${crew ? 'Строить корабль на троих' : 'Строить одноместный'}</button>
+        ${CREW_READY ? '<button type="button" class="link" id="sc-code">У меня есть код друга</button>' : ''}</div>`;
+    scene.querySelectorAll('.heroes button').forEach(b => b.addEventListener('click', () => {
+      const x = scene.querySelector('.heroes').scrollLeft;
+      hero = b.dataset.h; paint(); scene.querySelector('.heroes').scrollLeft = x;
+    }));
+    scene.querySelectorAll('.opt').forEach(b => b.addEventListener('click', () => {
+      if (b.getAttribute('aria-disabled') === 'true') return;
+      const x = scene.querySelector('.heroes').scrollLeft;
+      how = b.dataset.how; paint(); scene.querySelector('.heroes').scrollLeft = x;
+    }));
+    const code = scene.querySelector('#sc-code');
+    if (code) code.addEventListener('click', () => { save.hero = hero; persist(); joinByCode(false); });
+    scene.querySelector('#sc-go').addEventListener('click', () => {
+      save.hero = hero; persist();
+      if (how === 'crew') { crewProfile('ship'); return; }
+      save.seed = save.seed || newSeed();
+      save.start = DEMO ? shift(today(), -25) : today();
+      save.snap = null; save.choices = { 0: 'solo' }; save.hooks = {}; save.steps = {}; save.seen = { u: 0, stop: 0, gifts: {} };
+      mergeSteps(phone);   // сегодняшние шаги уже идут в корабль — не ждать следующей загрузки
+      persist();
+      scene.hidden = true;
+      refresh(true);
+    });
+  };
+  paint();
+  scene.hidden = false;
+}
+
+// наклейка с экрана прилёта переезжает на карту
+function slap(i) {
+  const el = souvs[i];
+  render(shown, false);
+  if (!el) return;
+  el.hidden = false; el.classList.remove('slap'); void el.offsetWidth; el.classList.add('slap');
+}
+
+// ===== ХОД ИГРЫ =====
+// После каждого пересчёта корабль долетает на экране от того места, где игрок
+// видел его в прошлый раз, до нынешнего. Потом — что надо показать по очереди:
+// открыть контейнер базы, прилёт с климатом, стоянка с выбором.
+let busy = false, anim = 0;
+function animateTo(target, done) {
+  cancelAnimationFrame(anim);
+  const from = shown, dist = target - from;
+  if (dist <= 0 || matchMedia('(prefers-reduced-motion: reduce)').matches) { shown = target; render(shown, true); done(); return; }
+  const ms = Math.max(900, Math.min(4500, dist * 1600)), t0 = performance.now();
+  const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  const step = now => {
+    const k = Math.max(0, Math.min((now - t0) / ms, 1));   // кадр rAF может начаться чуть раньше t0
+    shown = from + dist * ease(k);
+    drawShipIfChanged(); render(shown, true);
+    if (k < 1) anim = requestAnimationFrame(step); else { shown = target; done(); }
+  };
+  anim = requestAnimationFrame(step);
+}
+// перерисовать корабль, когда он сел или взлетел и когда сменился этап стройки
+let lastLanded = null;
+function drawShipIfChanged() { const l = !where(shown) + ':' + buildStage(shown); if (l !== lastLanded) { lastLanded = l; drawShip(shown); } }
+
+function next() {
+  // контейнер базы, который игрок ещё не открывал
+  for (const [i, g] of Object.entries(S.gifts)) if (!G.seen.gifts[i]) { openBase(+i, g); return; }
+  if (S.phase === 'finished' && G.seen.stop < FINAL) {
+    G.seen.stop = FINAL; persist();
+    bodies[FINAL].classList.add('arrived');
+    showArrival(FINAL, () => {});
+    return;
+  }
+  if (S.phase === 'stop' && S.stop > 0) {
+    if (G.seen.stop < S.stop) {
+      G.seen.stop = S.stop; persist();
+      const el = bodies[S.stop]; el.classList.remove('arrived'); void el.offsetWidth; el.classList.add('arrived');
+      setTimeout(() => showArrival(S.stop, () => { slap(S.stop); if (canPick() && !myVote(S.stop)) setTimeout(openStop, souvs[S.stop] ? 700 : 0); }), 900);
+      return;
+    }
+    if (canPick() && !G.choices[S.stop] && !pendingUp && !myVote(S.stop)) openStop();
+  }
+}
+
+function refresh(first) {
+  compute();
+  if (!S || (S.stop === 0 && S.phase === 'stop' && !G.choices[0])) { hud.hidden = true; crewBtn.hidden = true; showStart(); return; }
+  if (first) { shown = Math.min(G.seen.u || 0, S.at); lastLanded = null; drawShipIfChanged(); render(shown, true); }
+  paintHud();
+  const fly = () => {
+    busy = true;
+    animateTo(S.at, () => {
+      busy = false;
+      lastLanded = null; drawShipIfChanged(); render(shown, false);
+      G.seen.u = S.at; persist();
+      next();
+    });
+  };
+  // корабль достроен, а игрок ещё не видел взлёта — сначала старт по кнопке
+  if (shown === 0 && S.at > 0) { showLaunch(fly); return; }
+  fly();
+}
+
+// старт: корабль готов и стоит на площадке, полетит по кнопке
+function showLaunch(then) {
+  const big = S.seats > 1;
+  scene.innerHTML = `<div class="stage">
+    <img class="abs sticker" src="${IMG}earth.webp" alt="" style="width:150%;left:-25%;top:44%">
+    <div class="abs" style="left:19%;width:62%;top:19%">
+      <img class="sticker" src="${IMG}launchpad.webp" alt="" style="width:100%">
+      <div class="abs" style="left:40%;bottom:39%;transform:translateX(-50%)">${rig({ ...looks(), boost: false, crew: G.crew, w: big ? 92 : 74, flame: 1 })}</div></div>
+    <div class="title" style="top:3%">Корабль готов!<small>Шаги сложились в корабль — пора лететь</small></div></div>
+    <div class="foot"><button type="button" class="cta" id="sc-go">Старт!</button></div>`;
+  scene.hidden = false;
+  scene.querySelector('#sc-go').addEventListener('click', () => { scene.hidden = true; then(); });
+}
+
+async function load(first) {
+  const h = addBonus(await readSteps());
+  phone = h;
+  if (save.crew) await syncCrew(h);
+  else { mergeSteps(h); persist(); }
+  if (becomeSoloLater) { const snap = becomeSoloLater; becomeSoloLater = null; toast('Экипажа больше нет — летим одни'); becomeSolo(snap); return; }
+  refresh(first);
+}
+
+// ===== ЗАПУСК =====
+document.getElementById('back').addEventListener('click', () => { if (history.length > 1) history.back(); else location.href = 'index.html'; });
+// демо: старт сдвигается на 3 дня раньше — шагов больше, корабль летит дальше
+const demoBtn = document.getElementById('demo');
+demoBtn.hidden = !DEMO;
+demoBtn.addEventListener('click', () => { if (!save.start || save.crew || busy || !scene.hidden) return; save.start = shift(save.start, -3); load(false); });
+// бета: +500 шагов к сегодняшним
+const plusBtn = document.getElementById('plus');
+plusBtn.hidden = !BETA;
+if (DEMO) plusBtn.style.top = 'calc(106px + env(safe-area-inset-top))';
+document.getElementById('plus-info').addEventListener('click', () => {
+  if (busy || !scene.hidden) return;
+  sheet.innerHTML = `${SHEET_TOP}
+    <div class="head"><div><h4>+500 шагов — только в бете</h4><p>Кнопка для проверки игры: чтобы пролететь дальше, не выходя на улицу. В обычной версии её нет.</p></div></div>
+    <div class="info"><span>Каждое нажатие прибавляет <b>500 шагов к сегодняшним</b>, нажимать можно сколько угодно.
+      За день засчитывается не больше ${fmt(RULES.stepCap)} шагов на человека, остальное уходит в бак.</span></div>
+    ${save.crew ? '<div class="info"><span>В экипаже эти шаги уходят на сервер как настоящие и складываются с шагами друзей.</span></div>' : ''}`;
+  sheet.classList.add('on');
+});
+document.getElementById('plus-add').addEventListener('click', () => {
+  if (!(save.start || save.crew) || busy || !scene.hidden) return;
+  const t = today();
+  save.bonus = save.bonus || {}; save.bonus[t] = (save.bonus[t] || 0) + 500; persist();
+  toast('+500 шагов'); load(false);
+});
+const idle = () => !busy && scene.hidden && !sheet.classList.contains('on');
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (save.start || save.crew) && idle()) load(false); });
+// экипаж: друзья шагают и голосуют без нас — раз в минуту забираем корабль
+setInterval(() => { if (save.crew && document.visibilityState === 'visible' && idle()) load(false); }, 60_000);
+let rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (!S) return; build(); lastLanded = null; drawShipIfChanged(); render(shown, false); }, 150); });
+
+try { TWINKLE = await (await fetch('game/space_dark.json')).json(); } catch (e) { /* без мерцания — просто звёзды фона */ }
+build();
+load(true);
+</script>
+</body>
+</html>

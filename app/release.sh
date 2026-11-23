@@ -22,6 +22,9 @@ PUB=${ASTROLAB_PUBLIC_DIR:-$HOME/.cache/astrolab-day-public}
 VERSION=$(node -p "require('./package.json').version")
 NOTES=${1:-"Версия $VERSION"}
 
+if [ -n "${BETA:-}" ]; then
+  echo "BETA задан — бета со шагами «для проверки» не выпускается; уберите BETA" >&2; exit 1
+fi
 if [ -n "$(git status --porcelain -- ..)" ]; then
   echo "В tools/natal-calc есть незакоммиченные правки — сначала коммит:" >&2
   git status --short -- .. >&2; exit 1

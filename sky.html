@@ -19,7 +19,17 @@
     • где человек — GPS, запоминается в телефоне и никуда не уходит;
     • звёзды и созвездия — app/sky.json (d3-celestial, BSD-3), J2000;
     • планеты — Swiss Ephemeris в WebAssembly, тот же движок, что считает
-      день (engine.js, сообщение {type:'sky'}), раз в минуту.
+      день (engine.js, сообщение {type:'sky'}), раз в минуту;
+    • «ещё в космосе» — карликовые планеты, крупные астероиды, кометы,
+      межзвёздный гость, действующие зонды — app/bodies.json: таблица
+      положений JPL Horizons на два года (собирает src/build-bodies.ts),
+      в телефоне — только интерполяция, в сеть за ними не ходим. Радианты
+      метеорных потоков — справочник SHOWERS ниже, они ежегодные. Слой
+      выключается кнопкой «Ещё в космосе» в нижнем ряду.
+
+  Кометы рисуются с хвостом от Солнца; что не видно глазом, — тусклее и
+  контуром. В карточке такого тела — чем его увидеть: глазом, в бинокль,
+  в телескоп или никак (зонд).
 
   Знак и созвездие показываются оба и честно расходятся: знаки зодиака
   отсчитываются от точки весеннего равноденствия, а она из-за прецессии
@@ -68,6 +78,13 @@
     --moon:        #E8E6DC;
     --planet:      #C9A45C;
     --target:      #E0C48C;
+    /* «ещё в космосе»: свой цвет у каждого рода тел */
+    --minor:       #C7BBA4;
+    --comet:       #9FE3D0;
+    --comet-tail:  rgba(159,227,208,0.45);
+    --probe:       #8FB8FF;
+    --meteor:      #F2A7C3;
+    --guest:       #D9A8FF;
 
     /* рисунки планет в карточке: цвета по фотографиям, приглушённые */
     --pl-shade:        #05060C;
@@ -96,6 +113,11 @@
     --pl-neptune-spot: #2C4290;
     --pl-pluto:        #C8AC8B;
     --pl-pluto-heart:  #EFE2CC;
+    --pl-rock:         #9A8F7E;
+    --pl-rock-dark:    #655D52;
+    --pl-ice:          #DCEAF0;
+    --pl-metal:        #C9CED8;
+    --pl-panel:        #3D5A99;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; background: var(--sky-night); color: var(--text); font-family: var(--font);
@@ -139,10 +161,14 @@
   .sky-chip i { font-style: normal; font-family: var(--glyph-font); color: var(--accent); font-size: 15px; }
   .sky-chip.on { border-color: var(--accent); color: var(--text); }
   .sky-chip.below { opacity: .55; }
+  /* переключатель слоя «ещё в космосе» — пунктиром, чтобы не путать с телом */
+  .sky-chip.layer { border-style: dashed; color: var(--muted); }
+  .sky-chip.layer[aria-pressed="true"] { border-color: var(--modal-border); color: var(--periwinkle); }
 
   /* ===== КАРТОЧКА ПЛАНЕТЫ ===== */
   .sky-card { position: fixed; left: 10px; right: 10px; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 3; max-width: 460px; margin: 0 auto;
-    max-height: 58vh; overflow-y: auto; overscroll-behavior: contain;
+    /* на невысоких экранах 58% обрезали карточку посередине — даём ей место до шапки */
+    max-height: max(58vh, calc(100vh - 230px)); overflow-y: auto; overscroll-behavior: contain;
     background: var(--card-solid); border: 1px solid var(--modal-border); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 7px;
     animation: pop .2s ease; touch-action: pan-y; }
   .sky-card[hidden] { display: none; }
@@ -209,6 +235,67 @@
     pluto:   { fact: 'Карликовая планета, меньше Луны. Год на нём длится 248 земных лет. Глазом не виден.', astro: 'В астрологии — глубокие перемены, сила и контроль.' },
   };
   const HER = { moon: 1, venus: 1 };   // «до неё» / «до него»
+
+  /* ===== ЕЩЁ В КОСМОСЕ: СПРАВОЧНИК =====
+     Сами тела и их положения — в bodies.json; здесь — слова о них. */
+  const KIND = { dwarf: 'Карликовая планета', asteroid: 'Астероид', comet: 'Комета', interstellar: 'Межзвёздный гость', probe: 'Зонд', meteor: 'Метеорный поток' };
+  const KIND_GLYPH = { dwarf: '◦', asteroid: '◦', comet: '☄', interstellar: '☄', probe: '◇', meteor: '✧' };
+  // «до неё»: планета, комета, астероиды с женскими именами (Веста, Паллада…)
+  const herOf = e => (e.kind === 'dwarf' || e.kind === 'comet' || e.kind === 'asteroid') && e.id !== 'apophis';
+  const INFO_X = {
+    ceres:    'Самое крупное тело пояса астероидов, около 950 км в поперечнике, — поэтому и карликовая планета. Зонд Dawn нашёл на ней яркие пятна соли в кратере Оккатор.',
+    eris:     'Почти с Плутон размером, но тяжелее. Из-за её открытия в 2005 году астрономы договорились, что такое «планета», — и в 2006-м Плутон перевели в карликовые. Год на Эриде длится 559 земных лет.',
+    haumea:   'Вращается так быстро — оборот меньше чем за 4 часа, — что вытянулась, как дыня. У неё есть кольцо и два спутника.',
+    makemake: 'Открыта вскоре после Пасхи 2005 года и названа в честь бога-творца жителей острова Пасхи. Поверхность — замёрзший метан.',
+    sedna:    'Одно из самых далёких известных тел Солнечной системы: оборот вокруг Солнца — около 11 тысяч лет. Ближе всего подойдёт в 2076 году — и всё равно будет в два с половиной раза дальше Нептуна.',
+    vesta:    'Самый яркий астероид: в лучшие месяцы его видно глазом в тёмном небе. На южном полюсе — кратер Реасильвия с горой выше 20 км.',
+    pallas:   'Второй по величине астероид. Его орбита наклонена на 35° к плоскости, в которой летят планеты, поэтому к нему так трудно долететь.',
+    juno:     'Третий из открытых астероидов — найден в 1804 году. Около 250 км в поперечнике.',
+    hygiea:   'Четвёртый по величине астероид и почти идеальный шар — кандидат в карликовые планеты.',
+    apophis:  'Скала размером с три футбольных поля. 13 апреля 2029 года пройдёт в 32 тысячах км от Земли — ближе спутников связи — и будет виден глазом. Столкновение исключено как минимум на сто лет.',
+    '3i':     'Третий известный гость из другой звёздной системы, открыт 1 июля 2025 года. Пролетел мимо Солнца и уходит навсегда; возможно, он старше Солнечной системы.',
+    bepicolombo: 'Совместный зонд Европы и Японии, летит с 2018 года. 21 ноября 2026 года выходит на орбиту Меркурия и там разделится на два аппарата.',
+    juice:    'Европейский зонд к спутникам Юпитера. В конце сентября 2026 года пролетел у Земли, чтобы разогнаться. Долетит в 2031 году и станет первым аппаратом на орбите чужого спутника — Ганимеда.',
+    clipper:  'Самый большой планетный зонд NASA: солнечные батареи размахом 30 метров. Летит к Юпитеру изучать Европу — под её льдом океан. В декабре 2026 года разгонится у Земли, прилетит в 2030 году.',
+    lucy:     'Зонд NASA к троянцам Юпитера — астероидам, которые идут по одной орбите с Юпитером. Первый троянец, Эврибат, — в августе 2027 года.',
+    psyche:   'Зонд NASA к астероиду Психея — возможно, железному ядру несостоявшейся планеты. Летит на ионных двигателях, прилетит в 2029 году.',
+    hera:     'Европейский зонд к паре астероидов Дидим и Диморф: смотрит, что стало с Диморфом после того, как в 2022 году в него нарочно врезался зонд DART. На карте он — у цели: они уже рядом.',
+    parker:   'Ближе всех подлетает к Солнцу — на 6 млн км, сквозь его корону. Самый быстрый аппарат, построенный людьми: до 690 тысяч км/ч.',
+    jwst:     'Космический телескоп с золотым зеркалом 6,5 м. Висит в полутора миллионах км от Земли, на стороне, противоположной Солнцу, и в инфракрасном свете видит первые галактики.',
+    newhorizons: 'В 2015 году впервые снял Плутон вблизи — с «сердцем» изо льда. Теперь летит в поясе Койпера, далеко за орбитой Плутона.',
+    voyager1: 'Самый далёкий аппарат людей. Запущен в 1977 году, в 2012-м первым вышел в межзвёздное пространство и всё ещё передаёт данные.',
+    voyager2: 'Единственный, кто побывал у Урана и Нептуна. Запущен в 1977 году, в 2018-м вышел в межзвёздное пространство.',
+    'c-2p':   'Самый короткий период среди известных комет: возвращается каждые 3,3 года. Её пыль — осенние метеорные потоки Тауриды.',
+    'c-96p':  'Подходит к Солнцу ближе Меркурия — на 18 млн км. Её пыль, вероятно, — летний поток Южные дельта-Аквариды.',
+    'c-45p':  'Возвращается раз в 5,3 года. В 2017 году прошла в 12 млн км от Земли.',
+    'c-19p':  'В 2001 году к ней подлетал зонд Deep Space 1 и снял ядро, похожее на кеглю.',
+    'c-22p':  'Возвращается к Солнцу каждые 6,4 года; её наблюдают с 1906 года.',
+  };
+  const KIND_FACT = {
+    comet: 'Глыба льда и пыли в несколько километров. У Солнца лёд испаряется, и вырастает хвост — он всегда направлен от Солнца.',
+  };
+  /* Метеорные потоки: радиант на пик (J2000), даты активности, ZHR —
+     по календарю Международной метеорной организации (imo.net). Пик год
+     от года сдвигается на день: даты — «около». ZHR — сколько метеоров
+     в час увидел бы наблюдатель в идеально тёмном небе с радиантом в
+     зените; на деле — в разы меньше. */
+  const SHOWERS = [
+    { id: 'qua', ru: 'Квадрантиды', ra: 230, dec: 49,  from: [12, 28], to: [1, 12],  peak: [1, 3],   zhr: 110, parent: 'астероида 2003 EH1 — вероятно, погасшей кометы' },
+    { id: 'lyr', ru: 'Лириды',      ra: 271, dec: 34,  from: [4, 14],  to: [4, 30],  peak: [4, 22],  zhr: 18,  parent: 'кометы Тэтчер (C/1861 G1)' },
+    { id: 'eta', ru: 'Эта-Аквариды', ra: 338, dec: -1, from: [4, 19],  to: [5, 28],  peak: [5, 6],   zhr: 50,  parent: 'кометы Галлея' },
+    { id: 'sda', ru: 'Южные дельта-Аквариды', ra: 340, dec: -16, from: [7, 12], to: [8, 23], peak: [7, 30], zhr: 25, parent: 'вероятно, кометы Махгольца (96P)' },
+    { id: 'per', ru: 'Персеиды',    ra: 48,  dec: 58,  from: [7, 17],  to: [8, 24],  peak: [8, 12],  zhr: 100, parent: 'кометы Свифта — Таттла (109P)' },
+    { id: 'dra', ru: 'Дракониды',   ra: 262, dec: 54,  from: [10, 6],  to: [10, 10], peak: [10, 8],  zhr: 10,  parent: 'кометы Джакобини — Циннера (21P)' },
+    { id: 'sta', ru: 'Южные Тауриды', ra: 32, dec: 9,  from: [9, 10],  to: [11, 20], peak: [10, 10], zhr: 5,   parent: 'кометы Энке (2P)' },
+    { id: 'ori', ru: 'Ориониды',    ra: 95,  dec: 16,  from: [10, 2],  to: [11, 7],  peak: [10, 21], zhr: 20,  parent: 'кометы Галлея' },
+    { id: 'nta', ru: 'Северные Тауриды', ra: 58, dec: 22, from: [10, 20], to: [12, 10], peak: [11, 12], zhr: 5, parent: 'кометы Энке (2P)' },
+    { id: 'leo', ru: 'Леониды',     ra: 152, dec: 22,  from: [11, 6],  to: [11, 30], peak: [11, 17], zhr: 15,  parent: 'кометы Темпеля — Туттля (55P)' },
+    { id: 'gem', ru: 'Геминиды',    ra: 112, dec: 33,  from: [12, 4],  to: [12, 20], peak: [12, 14], zhr: 150, parent: 'астероида Фаэтон — редкий поток не от кометы' },
+    { id: 'urs', ru: 'Урсиды',      ra: 217, dec: 76,  from: [12, 17], to: [12, 26], peak: [12, 22], zhr: 10,  parent: 'кометы Туттля (8P)' },
+  ];
+  const MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  const dayMonth = md => `${md[1]} ${MONTHS_GEN[md[0] - 1]}`;
+  const daysWord = n => { const t = n % 10, h = n % 100; return `${n} ${t === 1 && h !== 11 ? 'день' : t >= 2 && t <= 4 && (h < 12 || h > 14) ? 'дня' : 'дней'}`; };
   const FE0E = '︎';
   const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
@@ -217,7 +304,9 @@
   const COL = { night: C('--sky-night'), zenith: C('--sky-zenith'), twilight: C('--sky-twilight'), ground: C('--ground'), horizon: C('--horizon'),
     con: C('--con-line'), conZ: C('--con-zodiac'), conLabel: C('--con-label'), accent: C('--accent'), ecl: C('--ecliptic'), text: C('--text'),
     dim: C('--text-dim'), muted: C('--muted'), sun: C('--sun'), moon: C('--moon'), planet: C('--planet'), target: C('--target'),
-    stars: [0, 1, 2, 3, 4].map(i => C('--star-' + i)), bg: C('--bg-black') };
+    stars: [0, 1, 2, 3, 4].map(i => C('--star-' + i)), bg: C('--bg-black'),
+    minor: C('--minor'), comet: C('--comet'), cometTail: C('--comet-tail'), probe: C('--probe'), meteor: C('--meteor'), guest: C('--guest') };
+  const KIND_COL = { dwarf: COL.minor, asteroid: COL.minor, comet: COL.comet, interstellar: COL.guest, probe: COL.probe, meteor: COL.meteor };
 
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
@@ -286,6 +375,45 @@
   if (engine) engine.onmessage = e => { if (e.data.type === 'sky') { planets = e.data.bodies; jdPlanets = e.data.jd; refreshFrames(); renderChips(); } };
   const askPlanets = () => engine && engine.postMessage({ type: 'sky', ms: Date.now() });
 
+  /* ===== ЕЩЁ В КОСМОСЕ: ГДЕ ТЕЛО СЕЙЧАС =====
+     У тела один или несколько кусков таблицы (tracks): кометы хранятся,
+     только пока ярче 15m, зонды — кроме дней пролёта у Земли. Вне кусков
+     тела на небе нет. Между узлами — линейно; RA разворачивается через 0°. */
+  let BODIES = null;                       // bodies.json
+  const EXTRAS_KEY = 'astrolab_sky_extras';
+  let extrasOn = store.get(EXTRAS_KEY) !== false;
+  function bodyAt(b, jd) {
+    const d = jd - BODIES.jd0;
+    for (const t of b.tracks) {
+      const x = (d - t.t0) / t.step, n = t.ra.length;
+      if (n < 2 || x < 0 || x > n - 1) continue;
+      const i = Math.min(n - 2, Math.floor(x)), k = x - i;
+      let r0 = t.ra[i], r1 = t.ra[i + 1];
+      if (r1 - r0 > 180) r1 -= 360; else if (r0 - r1 > 180) r1 += 360;
+      const lerp = a => a[i] + (a[i + 1] - a[i]) * k;
+      const mag = t.mag && t.mag[i] !== null && t.mag[i + 1] !== null ? lerp(t.mag) : null;
+      return { ra: ((r0 + (r1 - r0) * k) % 360 + 360) % 360, dec: lerp(t.dec), dist: lerp(t.au), mag };
+    }
+    return null;
+  }
+  // поток активен в этот день года; границы бывают через Новый год
+  function showerActive(s, date) {
+    const md = (date.getMonth() + 1) * 100 + date.getDate(), a = s.from[0] * 100 + s.from[1], b = s.to[0] * 100 + s.to[1];
+    return a <= b ? md >= a && md <= b : md >= a || md <= b;
+  }
+  function daysToPeak(s, date) {
+    let best = Infinity;
+    for (const y of [date.getFullYear() - 1, date.getFullYear(), date.getFullYear() + 1]) {
+      const d = (new Date(y, s.peak[0] - 1, s.peak[1]) - new Date(date.getFullYear(), date.getMonth(), date.getDate())) / 86400000;
+      if (Math.abs(d) < Math.abs(best)) best = d;
+    }
+    return Math.round(best);
+  }
+  const isExtra = id => frame && frame.extras.some(e => e.id === id);
+  const nameOf = id => NAMES[id] || (frame && (frame.extras.find(e => e.id === id) || {}).ru) || '';
+  // короткое имя для кнопки и подписи на небе: без слова «Комета»
+  const shortName = e => e.ru.replace(/^Комета /, '');
+
   /* ===== АСТРОНОМИЯ: ЭКВАТОР → ГОРИЗОНТ =====
      Вектор на небе в системе «восток, север, зенит» (ENU). Через часовой
      угол, без промежуточных высоты и азимута: так дешевле, а прожектор
@@ -351,8 +479,40 @@
       [r, d] = eclToEq(30 * k + 15 - p); enu(r, d, lst, sP, cP, signs, k * 6 + 3);      // середина — для значка
     }
     const bodies = planets.map(b => { const v = new Float32Array(3); enu(b.ra, b.dec, lst, sP, cP, v, 0); return { ...b, v }; });
-    frame = { jd, lst, sP, cP, stars, lines, labels, ecl, signs, bodies };
+    frame = { jd, lst, sP, cP, stars, lines, labels, ecl, signs, bodies, extras: extrasFrame(jd, lst, sP, cP, bodies) };
   }
+
+  // «ещё в космосе» на этот кадр: тела из таблицы и активные потоки
+  function extrasFrame(jd, lst, sP, cP, bodies) {
+    const out = [];
+    if (!BODIES) return out;
+    const sun = bodies.find(b => b.id === 'sun');
+    for (const b of BODIES.bodies) {
+      const p = bodyAt(b, jd); if (!p) continue;
+      const v = new Float32Array(3); enu(p.ra, p.dec, lst, sP, cP, v, 0);
+      const e = { id: b.id, kind: b.kind, ru: b.ru, name: b.name, ...p, v };
+      // хвост кометы — от Солнца, по большому кругу; длиннее у яркой
+      if ((b.kind === 'comet' || b.kind === 'interstellar') && sun && p.mag !== null && p.mag < 13) {
+        const s = sun.v, dot = s[0] * v[0] + s[1] * v[1] + s[2] * v[2];
+        const t = [dot * v[0] - s[0], dot * v[1] - s[1], dot * v[2] - s[2]], n = Math.hypot(t[0], t[1], t[2]);
+        if (n > 1e-6) {
+          const L = Math.max(1.5, Math.min(8, (13 - p.mag) * 1.2)) * D2R, c = Math.cos(L), sn = Math.sin(L) / n;
+          e.tail = new Float32Array([v[0] * c + t[0] * sn, v[1] * c + t[1] * sn, v[2] * c + t[2] * sn]);
+        }
+      }
+      out.push(e);
+    }
+    const now = new Date(Date.now());
+    for (const s of SHOWERS) {
+      if (!showerActive(s, now)) continue;
+      const v = new Float32Array(3); enu(s.ra, s.dec, lst, sP, cP, v, 0);
+      out.push({ id: 'm-' + s.id, kind: 'meteor', ru: s.ru, shower: s, ra: s.ra, dec: s.dec, dist: 0, mag: null, v });
+    }
+    return out;
+  }
+  // за чем охотится прицел и тап: планеты, а при включённом слое — и остальное
+  const targets = () => frame ? (extrasOn ? frame.bodies.concat(frame.extras) : frame.bodies) : [];
+  const findTarget = id => targets().find(x => x.id === id);
 
   /* ===== ОРИЕНТАЦИЯ ТЕЛЕФОНА =====
      R — матрица «телефон → земля» (столбцы — оси телефона в ENU), как
@@ -503,6 +663,7 @@
     drawEcliptic();
     drawStars(sa);
     drawGround();
+    if (extrasOn) drawExtras();
     drawBodies();
     drawTarget();
     updateDwell();
@@ -631,10 +792,53 @@
     }
   }
 
+  /* ===== ЕЩЁ В КОСМОСЕ: РИСОВАНИЕ =====
+     Мельче и тише планет. Чем тусклее тело, тем прозрачнее; то, что
+     глазом не видно (слабее 6m), — контуром, а не точкой. */
+  function drawExtras() {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const e of frame.extras) {
+      project(e.v[0], e.v[1], e.v[2], P);
+      e.screen = P.front ? { x: P.x, y: P.y } : null;
+      if (!P.front || P.x < -60 || P.x > W + 60 || P.y < -60 || P.y > H + 60) continue;
+      const col = KIND_COL[e.kind], below = e.v[2] < 0;
+      const seen = e.mag !== null && e.mag <= 6, fade = e.mag === null ? 0.85 : e.mag <= 6 ? 1 : e.mag <= 9 ? 0.85 : e.mag <= 14 ? 0.65 : 0.5;
+      ctx.globalAlpha = fade * (below ? 0.45 : 1);
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = selected === e.id ? 2 : 1.2;
+      const x = P.x, y = P.y;
+      if (e.tail) {
+        project(e.tail[0], e.tail[1], e.tail[2], Q);
+        if (Q.front) {
+          const g = ctx.createLinearGradient(x, y, Q.x, Q.y); g.addColorStop(0, COL.cometTail); g.addColorStop(1, 'transparent');
+          ctx.strokeStyle = g; ctx.lineWidth = 3; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(Q.x, Q.y); ctx.stroke();
+          ctx.lineCap = 'butt'; ctx.strokeStyle = col; ctx.lineWidth = selected === e.id ? 2 : 1.2;
+        }
+      }
+      if (e.kind === 'probe') {
+        ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.stroke();
+      } else if (e.kind === 'meteor') {
+        for (let k = 0; k < 8; k++) {
+          const a = k * Math.PI / 4, r0 = 3, r1 = k % 2 ? 7 : 10;
+          ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0); ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1); ctx.stroke();
+        }
+      } else if (e.kind === 'interstellar') {
+        ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      } else if (seen || (e.mag !== null && e.mag <= 9)) {
+        ctx.beginPath(); ctx.arc(x, y, seen ? 3.5 : 2.6, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.stroke();
+      }
+      if (selected === e.id) { ctx.beginPath(); ctx.arc(x, y, 11, 0, Math.PI * 2); ctx.stroke(); }
+      if (dwell.id !== e.id) { ctx.font = '10px ' + C('--font'); ctx.fillText(shortName(e), x, y + (selected === e.id ? 20 : e.kind === 'meteor' ? 17 : 12)); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // выбранная планета за краем экрана — стрелка у края в её сторону
   function drawTarget() {
     if (!selected) return;
-    const b = frame.bodies.find(x => x.id === selected); if (!b) return;
+    const b = findTarget(selected); if (!b) return;
     project(b.v[0], b.v[1], b.v[2], Q);
     if (Q.front && Q.x > 20 && Q.x < W - 20 && Q.y > 70 && Q.y < H - 70) return;
     let ang = Math.atan2(-Q.dy, Q.dx);
@@ -646,7 +850,7 @@
     ctx.fillStyle = COL.target; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-4, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill();
     ctx.restore();
     ctx.font = '600 12px ' + C('--font'); ctx.fillStyle = COL.target; ctx.textAlign = 'center';
-    ctx.fillText(NAMES[b.id], x - Math.cos(ang) * 26, y - Math.sin(ang) * 26);
+    ctx.fillText(nameOf(b.id), x - Math.cos(ang) * 26, y - Math.sin(ang) * 26);
   }
 
   /* ===== ПРИЦЕЛ: ЗАДЕРЖАТЬ ПЛАНЕТУ 3 СЕКУНДЫ =====
@@ -658,7 +862,7 @@
   function updateDwell() {
     const now = performance.now(), cx = W / 2, cy = H / 2;
     let cand = null, dmin = Infinity;
-    for (const b of frame.bodies) { if (!b.screen) continue; const d = Math.hypot(b.screen.x - cx, b.screen.y - cy); if (d < dmin) { dmin = d; cand = b; } }
+    for (const b of targets()) { if (!b.screen) continue; const d = Math.hypot(b.screen.x - cx, b.screen.y - cy); if (d < dmin) { dmin = d; cand = b; } }
     if (dwell.id && cand && cand.id === dwell.id && dmin < AIM_OUT) dwell.lostAt = 0;
     else if (cand && dmin < AIM_IN) dwell = { id: cand.id, start: now, lostAt: 0, done: false };
     else if (dwell.id) {
@@ -680,7 +884,7 @@
     const [ra, dec] = raDecOf(v.E, v.N, v.U, frame.lst, frame.sP, frame.cP);
     const con = constellationAt(ra, dec);
     const parts = [];
-    if (dwell.id) parts.push(NAMES[dwell.id]);
+    if (dwell.id) parts.push(nameOf(dwell.id));
     if (con) parts.push('созвездие ' + con.ru);
     const where = sideWord(v.az) + (v.alt < 0 ? ', под горизонтом' : '');
     const holding = dwell.id && !dwell.done && !dwell.lostAt ? ' · держите…' : '';
@@ -690,16 +894,34 @@
   /* ===== ПЛАНЕТЫ: СПИСОК И КАРТОЧКА ===== */
   function renderChips() {
     if (!frame) return;
-    ui.bodies.innerHTML = frame.bodies.map(b => `<button type="button" class="sky-chip${selected === b.id ? ' on' : ''}${b.v[2] < 0 ? ' below' : ''}" data-id="${b.id}"><i>${GLYPH[b.id]}${FE0E}</i>${NAMES[b.id]}</button>`).join('');
+    const chip = (id, glyph, name, below, col) => `<button type="button" class="sky-chip${selected === id ? ' on' : ''}${below ? ' below' : ''}" data-id="${id}"><i${col ? ` style="color:${col}"` : ''}>${glyph}${FE0E}</i>${name}</button>`;
+    // в ряд — только то, что стоит искать: видно хотя бы в бинокль, кометы до 12m и потоки
+    const worth = e => e.kind === 'meteor' || (e.mag !== null && (e.mag <= 9 || (e.kind === 'comet' && e.mag <= 12)));
+    ui.bodies.innerHTML = frame.bodies.map(b => chip(b.id, GLYPH[b.id], NAMES[b.id], b.v[2] < 0)).join('')
+      + `<button type="button" class="sky-chip layer" data-layer aria-pressed="${extrasOn}">✦${FE0E} Ещё в космосе</button>`
+      + (extrasOn ? frame.extras.filter(worth).sort((a, b) => (a.mag ?? 0) - (b.mag ?? 0))
+        .map(e => chip(e.id, KIND_GLYPH[e.kind], shortName(e), e.v[2] < 0, KIND_COL[e.kind])).join('') : '');
   }
-  ui.bodies.addEventListener('click', e => { const b = e.target.closest('[data-id]'); if (b) select(b.dataset.id); });
+  ui.bodies.addEventListener('click', e => {
+    if (e.target.closest('[data-layer]')) {
+      extrasOn = !extrasOn; store.set(EXTRAS_KEY, extrasOn);
+      if (!extrasOn && selected && isExtra(selected)) closeCard(); else renderChips();
+      say(extrasOn ? 'На небе — карликовые планеты, астероиды, кометы, зонды и метеорные потоки. Тап — что это.' : 'Остались только планеты.', 5000);
+      return;
+    }
+    const b = e.target.closest('[data-id]'); if (b) select(b.dataset.id);
+  });
 
   function pick(x, y) {
     let best = null, d0 = 32;
-    for (const b of frame ? frame.bodies : []) { if (!b.screen) continue; const d = Math.hypot(b.screen.x - x, b.screen.y - y); if (d < d0) { d0 = d; best = b.id; } }
+    for (const b of targets()) { if (!b.screen) continue; const d = Math.hypot(b.screen.x - x, b.screen.y - y); if (d < d0) { d0 = d; best = b.id; } }
     if (best) select(best); else closeCard();
   }
   function closeCard() { selected = null; ui.card.hidden = true; renderChips(); }
+
+  // о чём дом — тот же список в day.html, wheel.html и sky.html (страницы самодостаточные); менять во всех трёх
+  const HOUSE_ABOUT = ['', 'характер, внешность', 'свои деньги, вещи', 'общение, учёба', 'дом, семья, корни', 'влюблённость, дети, творчество',
+    'работа, быт, здоровье', 'партнёр, брак, договоры', 'общие деньги, долги, близость', 'поездки, мировоззрение', 'карьера, статус, репутация', 'друзья, общие планы', 'подсознание, уединение'];
 
   // натальный дом — по куспидам из сохранённого расчёта дня
   function houseOf(lon, cusps) {
@@ -725,12 +947,14 @@
     const e = ((m.lon - s.lon) % 360 + 360) % 360;
     return { e, lit: (1 - Math.cos(e * D2R)) / 2, name: phaseName(e) };
   }
-  function distanceLine(id, au) {
+  // her — «до неё»; signal — у зонда не свет, а радиосигнал
+  function distanceLine(id, au, her = HER[id], signal = false) {
     const km = au * AU_KM, sec = au * AU_LIGHT_S;
-    const dist = km >= 1e9 ? `${(km / 1e9).toFixed(2).replace('.', ',')} млрд км` : km >= 1e6 ? `${Math.round(km / 1e6).toLocaleString('ru-RU')} млн км` : `${(Math.round(km / 100) * 100).toLocaleString('ru-RU')} км`;
+    const dist = km >= 1e9 ? `${(km / 1e9).toFixed(2).replace('.', ',')} млрд км` : km >= 1e7 ? `${Math.round(km / 1e6).toLocaleString('ru-RU')} млн км`
+      : km >= 1e6 ? `${(km / 1e6).toFixed(1).replace('.', ',')} млн км` : `${(Math.round(km / 100) * 100).toLocaleString('ru-RU')} км`;
     const mins = Math.round(sec / 60), hrs = Math.floor(mins / 60);
     const light = sec < 60 ? `${sec.toFixed(1).replace('.', ',')} секунды` : mins < 60 ? `${mins} мин` : `${hrs} ч${mins % 60 ? ` ${mins % 60} мин` : ''}`;
-    return `Сейчас до ${HER[id] ? 'неё' : 'него'} <b>${dist}</b>: свет, который вы видите, вышел оттуда ${light} назад.`;
+    return `Сейчас до ${her ? 'неё' : 'него'} <b>${dist}</b>: ${signal ? `радиосигнал оттуда идёт ${light}` : `свет, который вы видите, вышел оттуда ${light} назад`}.`;
   }
 
   // Рисунки — инлайн-SVG по мотивам фотографий: диск, полосы, кольца,
@@ -798,6 +1022,7 @@
   }
 
   function select(id) {
+    if (isExtra(id)) return selectExtra(id);
     selected = id; renderChips();
     const b = frame.bodies.find(x => x.id === id); if (!b) return;
     track('sky.body', { body: id });
@@ -821,11 +1046,78 @@
       ${ph ? `<p class="sky-row">Фаза: <b>${ph.name}</b>, освещено ${Math.round(ph.lit * 100)}%</p>` : ''}
       ${b.dist ? `<p class="sky-row">${distanceLine(id, b.dist)}</p>` : ''}
       ${retro ? `<p class="sky-note">Сейчас ретроград: с Земли кажется, что планета пятится по зодиаку. Это эффект обгона — как соседний поезд, который будто едет назад, когда ваш его обгоняет.</p>` : ''}
-      <p class="sky-row">${where}${house ? ` · в вашей карте — <b>${house}-й дом</b>` : ''}</p>
+      <p class="sky-row">${where}${house ? ` · в вашей карте — <b>${house}-й дом</b> (${HOUSE_ABOUT[house]})` : ''}</p>
       <p class="sky-row">Знак: <b>${SIGNS[sign]}</b> · на небе: <b>созвездие ${conName}</b></p>
       ${same ? '' : `<p class="sky-note">Знак и созвездие разные — это не ошибка. Знаки отсчитываются от точки весеннего равноденствия, а она из-за прецессии ползёт по небу на 1° за 72 года; со времён, когда знаки совпадали с созвездиями, она ушла почти на целое созвездие.</p>`}
       <p class="sky-astro">${INFO[id].astro}</p>
       ${today.length ? `<p class="sky-row">Сегодня:</p>${today.map(t => `<p class="sky-today">${t}</p>`).join('')}` : ''}`;
+    ui.card.hidden = false;
+    ui.card.scrollTop = 0;
+    ui.card.querySelector('.sky-card-x').addEventListener('click', closeCard);
+  }
+
+  /* ===== ЕЩЁ В КОСМОСЕ: КАРТОЧКА ===== */
+  function extraSVG(kind) {
+    const f = fillOf, sh = shade('x');
+    switch (kind) {
+      case 'probe':      // корпус, две панели, тарелка антенны
+        return `<svg viewBox="-50 -50 100 100" aria-hidden="true"><rect x="-46" y="-9" width="30" height="18" ${f('--pl-panel')}/><rect x="16" y="-9" width="30" height="18" ${f('--pl-panel')}/>`
+          + `<rect x="-16" y="-1" width="32" height="2" ${f('--pl-metal')}/><rect x="-10" y="-12" width="20" height="24" rx="2" ${f('--pl-metal')}/>`
+          + `<path d="M-12-14A12 7 0 0 1 12-14Z" ${f('--pl-metal')} opacity=".8"/></svg>`;
+      case 'comet': case 'interstellar':
+        return `<svg viewBox="-50 -50 100 100" aria-hidden="true"><defs><linearGradient id="g-tail" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--comet);stop-opacity:.75"/><stop offset="1" style="stop-color:var(--comet);stop-opacity:0"/></linearGradient></defs>`
+          + `<path d="M-26 8L46-30L46-4Z" fill="url(#g-tail)"/><path d="M-26 8L48-18" style="stroke:var(--comet);stroke-opacity:.5" stroke-width="1.2"/><circle cx="-26" cy="8" r="8" ${f('--pl-ice')}/></svg>`;
+      case 'meteor':
+        return `<svg viewBox="-50 -50 100 100" aria-hidden="true">${[[-30, -34, 18], [-6, -40, 30], [14, -20, 22], [-36, -4, 14]].map(([x, y, l]) =>
+          `<path d="M${x} ${y}l${l} ${l}" style="stroke:var(--meteor)" stroke-width="2.5" stroke-linecap="round"/><path d="M${x - l * 0.6} ${y - l * 0.6}l${l * 0.6} ${l * 0.6}" style="stroke:var(--meteor);stroke-opacity:.3" stroke-width="1.5"/>`).join('')}</svg>`;
+      case 'dwarf':
+        return `<svg viewBox="-50 -50 100 100" aria-hidden="true"><defs>${sh}</defs><circle r="26" ${f('--pl-rock')}/><g ${f('--pl-ice')} opacity=".35"><circle cx="-8" cy="-9" r="7"/><circle cx="10" cy="8" r="5"/></g><circle r="26" fill="url(#sh-x)"/></svg>`;
+      default:          // астероид — неровная глыба
+        return `<svg viewBox="-50 -50 100 100" aria-hidden="true"><defs>${sh}</defs><path d="M-28-6C-30-20-14-30 2-28c16 2 28 10 26 26-2 14-14 26-30 24-16-2-24-14-26-28z" ${f('--pl-rock')}/>`
+          + `<g ${f('--pl-rock-dark')} opacity=".6"><circle cx="-8" cy="-10" r="5"/><circle cx="10" cy="6" r="4"/><circle cx="-12" cy="10" r="3"/></g><path d="M-28-6C-30-20-14-30 2-28c16 2 28 10 26 26-2 14-14 26-30 24-16-2-24-14-26-28z" fill="url(#sh-x)"/></svg>`;
+    }
+  }
+  // чем увидеть: границы — глаз за городом 6m, бинокль 9m, телескоп-любитель 14m
+  function seeLine(e) {
+    // «Уэбб» отражает много света: любители ловят его в телескоп как еле заметную звёздочку
+    if (e.id === 'jwst') return 'Глазом и в бинокль не увидеть. В большие любительские телескопы его ловят как еле заметную звёздочку, которая за ночь смещается среди звёзд.';
+    if (e.kind === 'probe') return 'Зонд не увидеть ни глазом, ни в телескоп: он слишком мал и далеко. На карте — точка, где он сейчас.';
+    if (e.mag === null) return '';
+    const m = e.mag.toFixed(1).replace('.', ',');
+    const how = e.mag <= 6 ? '<b>видно глазом</b> в тёмном небе за городом' : e.mag <= 9 ? '<b>видно в бинокль</b>' : e.mag <= 14 ? '<b>видно в телескоп</b>' : '<b>только в большие телескопы</b>';
+    return `Блеск ${m}m — ${how}. Чем меньше число, тем ярче; глазом видно примерно до 6m.`;
+  }
+  function selectExtra(id) {
+    selected = id; renderChips();
+    const e = frame.extras.find(x => x.id === id); if (!e) return;
+    track('sky.body', { body: e.kind });
+    const con = constellationAt(e.ra, e.dec);
+    const alt = Math.asin(e.v[2]) * R2D, az = ((Math.atan2(e.v[0], e.v[1]) * R2D) + 360) % 360;
+    const where = alt < 0 ? '<b>Под горизонтом</b> — сейчас не видно' : `${alt < 12 ? 'Низко над горизонтом' : alt > 60 ? 'Высоко в небе' : 'Над горизонтом'}, ${sideWord(az)}`;
+    let sub = KIND[e.kind], body = '';
+    if (e.kind === 'meteor') {
+      const s = e.shower, dp = daysToPeak(s, new Date());
+      const peak = dp === 0 ? '<b>пик — сегодня ночью</b>' : dp > 0 ? `пик — около ${dayMonth(s.peak)}, через ${daysWord(dp)}` : `пик был около ${dayMonth(s.peak)}`;
+      sub += ` · до ${dayMonth(s.to)}`;
+      body = `<p class="sky-fact">Земля проходит сквозь пыль ${s.parent}. Пылинки сгорают в атмосфере — это и есть «падающие звёзды». Все они летят как будто из одной точки — радианта; он здесь и отмечен.</p>
+        <p class="sky-row">Активен с ${dayMonth(s.from)} по ${dayMonth(s.to)}, ${peak}.</p>
+        <p class="sky-row">В пик — до <b>${s.zhr}</b> метеоров в час в идеально тёмном небе; в городе — в разы меньше.</p>
+        <p class="sky-row">Радиант: ${where[0].toLowerCase() + where.slice(1)}${con ? ` · созвездие <b>${con.ru}</b>` : ''}</p>
+        <p class="sky-note">Смотреть лучше после полуночи, вдали от фонарей, не на сам радиант, а в сторону от него: метеоры разлетаются по всему небу.</p>`;
+    } else {
+      if (e.name && e.kind !== 'probe' && !e.ru.includes(e.name)) sub += ' · ' + e.name.replace(/\s*\(.*\)$/, '');
+      const dist = distanceLine(id, e.dist, herOf(e), e.kind === 'probe');
+      body = `<p class="sky-fact">${INFO_X[id] || KIND_FACT[e.kind] || ''}</p>
+        ${seeLine(e) ? `<p class="sky-row">${seeLine(e)}</p>` : ''}
+        ${e.dist ? `<p class="sky-row">${dist}</p>` : ''}
+        <p class="sky-row">${where}${con ? ` · созвездие <b>${con.ru}</b>` : ''}</p>
+        ${e.kind === 'comet' ? '<p class="sky-note">Блеск комет предсказывают неточно: бывает, что комета вспыхивает в сотни раз или рассыпается. Хвост на карте — направление от Солнца, а не его настоящая длина.</p>' : ''}`;
+    }
+    ui.card.innerHTML = `
+      <div class="sky-card-head"><span class="sky-pic">${extraSVG(e.kind)}</span>
+        <div class="sky-card-title"><b>${e.ru}</b><small><i style="color:${KIND_COL[e.kind]}">${KIND_GLYPH[e.kind]}${FE0E}</i> ${sub}</small></div>
+        <button class="sky-card-x" type="button" aria-label="Закрыть">×</button></div>
+      ${body}`;
     ui.card.hidden = false;
     ui.card.scrollTop = 0;
     ui.card.querySelector('.sky-card-x').addEventListener('click', closeCard);
@@ -844,6 +1136,8 @@
   resize(); showPlace();
   fetch('sky.json').then(r => r.json()).then(j => { SKY = j; refreshFrames(); renderChips(); })
     .catch(() => say('Не удалось загрузить карту неба.', 10000));
+  // без таблицы — просто без слоя «ещё в космосе»: планеты и звёзды важнее
+  fetch('bodies.json').then(r => r.json()).then(j => { BODIES = j; refreshFrames(); renderChips(); }).catch(() => {});
   locate(); askPlanets();
   setInterval(askPlanets, 60000);
   setInterval(refreshFrames, 5000);

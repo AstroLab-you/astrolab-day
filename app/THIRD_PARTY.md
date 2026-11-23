@@ -10,6 +10,19 @@
 Данные © GeoNames (geonames.org), лицензия Creative Commons Attribution 4.0.
 Выжимка собирается командой `node src/build-cities.ts`.
 
+## JPL Horizons и SBDB — кометы, астероиды, зонды (`bodies.json`)
+
+Положения рассчитаны сервисом JPL Horizons (ssd.jpl.nasa.gov/horizons),
+список комет — по базе малых тел JPL SBDB (ssd-api.jpl.nasa.gov), NASA /
+Jet Propulsion Laboratory — California Institute of Technology. Данные
+NASA — общественное достояние (не охраняются авторским правом в США),
+используются с указанием источника. Таблица собирается командой
+`node src/build-bodies.ts app/bodies.json`.
+
+Даты и радианты метеорных потоков (`SHOWERS` в `sky.html`) — по рабочему
+списку International Meteor Organization (imo.net); это факты, а не
+заимствованный текст.
+
 ## d3-celestial — звёзды и созвездия (`sky.json`)
 
 Данные из github.com/ofrohn/d3-celestial, собираются командой
